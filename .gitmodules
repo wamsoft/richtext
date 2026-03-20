@@ -1,0 +1,7 @@
+[submodule "ext/thorvg"]
+	path = ext/thorvg
+	url = https://github.com/wtnbgo/thorvg.git
+	branch = cmake
+[submodule "ext/minikin"]
+	path = ext/minikin
+	url = https://github.com/wamsoft/minikin
