@@ -2,6 +2,7 @@
 #define RICHTEXT_GLYPH_RENDERER_HPP
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 #include <cstdint>
 
@@ -75,10 +76,56 @@ public:
      */
     void clearCache();
 
+    /**
+     * キャッシュ最大サイズ設定（バイト数、0 = 無制限）
+     */
+    void setCacheMaxSize(size_t bytes) { cacheMaxBytes_ = bytes; }
+
 private:
     tvg::Canvas* canvas_;
     bool useCache_ = true;
-    
+
+    // ------------------------------------------------------------------
+    // グリフキャッシュ
+    // ------------------------------------------------------------------
+
+    // キャッシュキー: フォントポインタ + グリフID + フォントサイズ
+    struct GlyphCacheKey {
+        uintptr_t fontPtr;
+        uint32_t glyphId;
+        uint32_t fontSizeQ;  // fontSize * 64 を uint32_t に変換（固定小数点）
+
+        bool operator==(const GlyphCacheKey& o) const {
+            return fontPtr == o.fontPtr && glyphId == o.glyphId && fontSizeQ == o.fontSizeQ;
+        }
+    };
+
+    struct GlyphCacheKeyHash {
+        size_t operator()(const GlyphCacheKey& k) const {
+            size_t h = k.fontPtr;
+            h ^= static_cast<size_t>(k.glyphId) * 2654435761u;
+            h ^= static_cast<size_t>(k.fontSizeQ) * 40503u;
+            return h;
+        }
+    };
+
+    // パスキャッシュ
+    struct CachedPath {
+        std::vector<tvg::PathCommand> commands;
+        std::vector<tvg::Point> points;
+    };
+
+    std::unordered_map<GlyphCacheKey, CachedPath, GlyphCacheKeyHash> pathCache_;
+    std::unordered_map<GlyphCacheKey, GlyphBitmap, GlyphCacheKeyHash> bitmapCache_;
+
+    size_t cacheUsedBytes_ = 0;
+    size_t cacheMaxBytes_ = 0;  // 0 = 無制限
+
+    GlyphCacheKey makeKey(const FontFace* font, uint32_t glyphId, float fontSize) const;
+
+    // キャッシュサイズ超過チェック・クリア
+    void evictCacheIfNeeded();
+
     /**
      * パス描画
      */
@@ -86,7 +133,7 @@ private:
                     const std::vector<tvg::Point>& points,
                     float x, float y,
                     const Appearance& appearance);
-    
+
     /**
      * ビットマップ描画（カラー絵文字）
      */

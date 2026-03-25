@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstdint>
 
+#include <minikin/Layout.h>
 #include <minikin/MinikinPaint.h>
 #include <minikin/FontCollection.h>
 #include <minikin/FontStyle.h>
@@ -63,6 +64,12 @@ struct TextStyle {
      * 斜体のスキュー値（0.0 = 通常、負の値で右傾斜）
      */
     float skewX = 0.0f;
+
+    /**
+     * 双方向テキスト制御
+     * DEFAULT_LTR: テキスト内容から自動判定（LTR優先）
+     */
+    minikin::Bidi bidi = minikin::Bidi::DEFAULT_LTR;
     
     // ------------------------------------------------------------------
     // メソッド

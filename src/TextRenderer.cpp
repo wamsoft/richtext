@@ -6,6 +6,7 @@
 
 #include "richtext/TextRenderer.hpp"
 #include "richtext/GlyphRenderer.hpp"
+#include "richtext/TagParser.hpp"
 
 namespace richtext {
 
@@ -110,8 +111,10 @@ void TextRenderer::clearCache() {
     }
 }
 
-void TextRenderer::setCacheMaxSize(size_t /*bytes*/) {
-    // TODO: キャッシュサイズ制限の実装
+void TextRenderer::setCacheMaxSize(size_t bytes) {
+    if (glyphRenderer_) {
+        glyphRenderer_->setCacheMaxSize(bytes);
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -231,14 +234,138 @@ RectF TextRenderer::drawParagraph(const std::u16string& text,
     return totalBounds;
 }
 
-RectF TextRenderer::drawStyledText(const std::u16string& /*text*/,
+RectF TextRenderer::drawStyledText(const std::u16string& text,
                                    const RectF& rect,
-                                   ParagraphLayout::HAlign /*hAlign*/,
-                                   ParagraphLayout::VAlign /*vAlign*/,
-                                   const std::map<std::string, TextStyle>& /*styles*/,
-                                   const std::map<std::string, Appearance>& /*appearances*/) {
-    // TODO: タグパーサーを使った実装
-    return rect;
+                                   ParagraphLayout::HAlign hAlign,
+                                   ParagraphLayout::VAlign vAlign,
+                                   const std::map<std::string, TextStyle>& styles,
+                                   const std::map<std::string, Appearance>& appearances) {
+    if (!glyphRenderer_ || text.empty()) {
+        return rect;
+    }
+
+    // デフォルトのスタイル・外観を styles/appearances から取得するか空で生成
+    TextStyle defaultStyle;
+    auto sit = styles.find("default");
+    if (sit != styles.end()) defaultStyle = sit->second;
+
+    Appearance defaultAppearance;
+    auto ait = appearances.find("default");
+    if (ait != appearances.end()) defaultAppearance = ait->second;
+    if (defaultAppearance.isEmpty()) defaultAppearance = Appearance::defaultAppearance();
+
+    // タグ付きテキストを解析
+    TagParser parser;
+    TagParser::ParseResult parsed = parser.parse(text, defaultStyle, defaultAppearance, styles, appearances);
+
+    if (parsed.plainText.empty()) {
+        return rect;
+    }
+
+    // パラグラフレイアウト（行分割のみ目的。styleRuns を使ってフォント選択も正確に）
+    ParagraphLayout para;
+    if (!parsed.styleRuns.empty()) {
+        para.layout(parsed.plainText, rect.width, parsed.styleRuns);
+    } else {
+        para.layout(parsed.plainText, rect.width, defaultStyle);
+    }
+
+    RectF totalBounds;
+    bool first = true;
+
+    for (size_t lineIdx = 0; lineIdx < para.getLineCount(); ++lineIdx) {
+        const ParagraphLayout::LineInfo& line = para.getLine(lineIdx);
+
+        // 行の垂直位置を計算
+        auto pos = para.getLinePosition(lineIdx, rect.x, rect.y,
+                                        rect.width, rect.height,
+                                        ParagraphLayout::HAlign::Left,  // X は後で調整
+                                        vAlign);
+        float baseY = pos.y;
+
+        // この行に重なるスパンを収集して左から描画
+        // 各スパン部分ごとに TextLayout を作り幅を計算する
+        struct SpanSegment {
+            size_t spanIdx;
+            size_t segStart;  // plainText 内の開始
+            size_t segEnd;
+        };
+        std::vector<SpanSegment> segments;
+
+        for (size_t si = 0; si < parsed.spans.size(); ++si) {
+            const auto& span = parsed.spans[si];
+            size_t overlapStart = std::max(span.start, line.startIndex);
+            size_t overlapEnd   = std::min(span.end,   line.endIndex);
+            if (overlapStart >= overlapEnd) continue;
+            segments.push_back({si, overlapStart, overlapEnd});
+        }
+
+        // スパンが全く無い行（空行など）はそのままスキップ
+        if (segments.empty()) {
+            continue;
+        }
+
+        // 各セグメントの幅を計算して合計幅を求める（Center/Right アライン用）
+        struct SegmentLayout {
+            size_t spanIdx;
+            float yOffset;
+            TextLayout layout;
+        };
+        std::vector<SegmentLayout> segLayouts;
+        float totalWidth = 0.0f;
+
+        for (const auto& seg : segments) {
+            const auto& span = parsed.spans[seg.spanIdx];
+            std::u16string segText = parsed.plainText.substr(seg.segStart, seg.segEnd - seg.segStart);
+
+            SegmentLayout sl;
+            sl.spanIdx = seg.spanIdx;
+            sl.yOffset = span.yOffset;
+            sl.layout.layout(std::move(segText), span.style);
+            totalWidth += sl.layout.getWidth();
+            segLayouts.push_back(std::move(sl));
+        }
+
+        // 水平アライン開始X を決定
+        float startX = rect.x;
+        switch (hAlign) {
+        case ParagraphLayout::HAlign::Left:
+            startX = rect.x;
+            break;
+        case ParagraphLayout::HAlign::Center:
+            startX = rect.x + (rect.width - totalWidth) / 2.0f;
+            break;
+        case ParagraphLayout::HAlign::Right:
+            startX = rect.x + rect.width - totalWidth;
+            break;
+        case ParagraphLayout::HAlign::Justify:
+            startX = rect.x;
+            break;
+        }
+
+        // 各セグメントを順番に描画
+        float curX = startX;
+        for (const auto& sl : segLayouts) {
+            const auto& span = parsed.spans[sl.spanIdx];
+            float drawY = baseY + sl.yOffset;
+
+            RectF segBounds = drawLayout(sl.layout, curX, drawY, span.appearance);
+            curX += sl.layout.getWidth();
+
+            if (first) {
+                totalBounds = segBounds;
+                first = false;
+            } else {
+                float left   = std::min(totalBounds.x, segBounds.x);
+                float top    = std::min(totalBounds.y, segBounds.y);
+                float right  = std::max(totalBounds.right(), segBounds.right());
+                float bottom = std::max(totalBounds.bottom(), segBounds.bottom());
+                totalBounds = RectF(left, top, right - left, bottom - top);
+            }
+        }
+    }
+
+    return totalBounds;
 }
 
 //------------------------------------------------------------------------------

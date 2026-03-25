@@ -226,14 +226,14 @@ bool FontFace::getGlyphPath(uint32_t glyphId, float size,
     if (err != 0) {
         return false;
     }
-    
+
     if (ftFace_->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
         return false;
     }
-    
+
     commands.clear();
     points.clear();
-    
+
     // FreeType アウトラインを thorvg パスに変換
     outlineToPath(&ftFace_->glyph->outline, 1.0f, commands, points);
     
@@ -361,8 +361,9 @@ void FontFace::outlineToPath(FT_Outline* outline, float scale,
                 points.push_back({cp2x, cp2y});
                 points.push_back({nextX, nextY});
                 
-                // 次の点がコントロールポイントなら、スキップしない
-                if (nextTag != FT_CURVE_TAG_CONIC) {
+                // 次の点がオンカーブ点なら、その点は消費済みなのでスキップ
+                // ただし nextIdx がラップアラウンドした場合はスキップしない
+                if (nextTag != FT_CURVE_TAG_CONIC && nextIdx > p) {
                     p = nextIdx - 1;  // ループで+1されるため
                 }
             } else if (tag == FT_CURVE_TAG_CUBIC) {

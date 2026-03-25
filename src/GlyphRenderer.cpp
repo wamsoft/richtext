@@ -37,29 +37,70 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
     
     // FontFace からグリフパスまたはビットマップを取得
     const FontFace* font = glyph.font;
-    
+
     // カラー絵文字判定
     if (font->isColorGlyph(glyph.glyphId)) {
         // ビットマップ描画
-        GlyphBitmap bitmap;
-        if (font->getGlyphBitmap(glyph.glyphId, style.fontSize, bitmap)) {
-            // スケール計算（固定サイズビットマップの場合）
-            float scale = 1.0f;
-            if (bitmap.height > 0) {
-                // ビットマップサイズとフォントサイズの比率でスケール
-                float bitmapSize = static_cast<float>(std::max(bitmap.width, bitmap.height));
-                scale = style.fontSize / bitmapSize;
+        if (useCache_) {
+            auto key = makeKey(font, glyph.glyphId, style.fontSize);
+            auto it = bitmapCache_.find(key);
+            if (it == bitmapCache_.end()) {
+                GlyphBitmap bitmap;
+                if (font->getGlyphBitmap(glyph.glyphId, style.fontSize, bitmap)) {
+                    size_t byteSize = bitmap.data.size();
+                    bitmapCache_.emplace(key, std::move(bitmap));
+                    cacheUsedBytes_ += byteSize;
+                    evictCacheIfNeeded();
+                    it = bitmapCache_.find(key);
+                }
             }
-            renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
-                        glyphY - bitmap.bearingY * scale, scale);
+            if (it != bitmapCache_.end()) {
+                const GlyphBitmap& bitmap = it->second;
+                float scale = 1.0f;
+                if (bitmap.height > 0) {
+                    float bitmapSize = static_cast<float>(std::max(bitmap.width, bitmap.height));
+                    scale = style.fontSize / bitmapSize;
+                }
+                renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
+                             glyphY - bitmap.bearingY * scale, scale);
+            }
+        } else {
+            GlyphBitmap bitmap;
+            if (font->getGlyphBitmap(glyph.glyphId, style.fontSize, bitmap)) {
+                float scale = 1.0f;
+                if (bitmap.height > 0) {
+                    float bitmapSize = static_cast<float>(std::max(bitmap.width, bitmap.height));
+                    scale = style.fontSize / bitmapSize;
+                }
+                renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
+                             glyphY - bitmap.bearingY * scale, scale);
+            }
         }
     } else {
         // ベクターパス描画
-        std::vector<tvg::PathCommand> commands;
-        std::vector<tvg::Point> points;
-        
-        if (font->getGlyphPath(glyph.glyphId, style.fontSize, commands, points)) {
-            renderPath(commands, points, glyphX, glyphY, appearance);
+        if (useCache_) {
+            auto key = makeKey(font, glyph.glyphId, style.fontSize);
+            auto it = pathCache_.find(key);
+            if (it == pathCache_.end()) {
+                CachedPath cached;
+                if (font->getGlyphPath(glyph.glyphId, style.fontSize, cached.commands, cached.points)) {
+                    size_t byteSize = cached.commands.size() * sizeof(tvg::PathCommand)
+                                    + cached.points.size() * sizeof(tvg::Point);
+                    pathCache_.emplace(key, std::move(cached));
+                    cacheUsedBytes_ += byteSize;
+                    evictCacheIfNeeded();
+                    it = pathCache_.find(key);
+                }
+            }
+            if (it != pathCache_.end()) {
+                renderPath(it->second.commands, it->second.points, glyphX, glyphY, appearance);
+            }
+        } else {
+            std::vector<tvg::PathCommand> commands;
+            std::vector<tvg::Point> points;
+            if (font->getGlyphPath(glyph.glyphId, style.fontSize, commands, points)) {
+                renderPath(commands, points, glyphX, glyphY, appearance);
+            }
         }
     }
 }
@@ -67,18 +108,9 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
 void GlyphRenderer::renderLayout(const TextLayout& layout,
                                  float x, float y,
                                  const Appearance& appearance) {
-    const auto& glyphs = layout.getGlyphs();
-    
-    // スタイルを構築（レイアウトから取得する方法がないので最低限の情報を使う）
-    // TODO: TextLayout に TextStyle 参照を保持させる
-    TextStyle style;
-    if (!glyphs.empty() && glyphs[0].font) {
-        // フォントサイズは MinikinPaint から取得できないので
-        // グリフの advance から推定するか、外部から渡す必要がある
-        style.fontSize = 16.0f;  // デフォルト値（要改善）
-    }
-    
-    for (const auto& glyph : glyphs) {
+    const TextStyle& style = layout.getStyle();
+
+    for (const auto& glyph : layout.getGlyphs()) {
         renderGlyph(glyph, x, y, style, appearance);
     }
 }
@@ -88,7 +120,26 @@ void GlyphRenderer::renderLayout(const TextLayout& layout,
 //------------------------------------------------------------------------------
 
 void GlyphRenderer::clearCache() {
-    // TODO: キャッシュ実装
+    pathCache_.clear();
+    bitmapCache_.clear();
+    cacheUsedBytes_ = 0;
+}
+
+GlyphRenderer::GlyphCacheKey GlyphRenderer::makeKey(const FontFace* font,
+                                                      uint32_t glyphId,
+                                                      float fontSize) const {
+    GlyphCacheKey key;
+    key.fontPtr = reinterpret_cast<uintptr_t>(font);
+    key.glyphId = glyphId;
+    key.fontSizeQ = static_cast<uint32_t>(fontSize * 64.0f + 0.5f);
+    return key;
+}
+
+void GlyphRenderer::evictCacheIfNeeded() {
+    if (cacheMaxBytes_ == 0) return;
+    if (cacheUsedBytes_ <= cacheMaxBytes_) return;
+    // 超過したら全クリア（シンプルな実装）
+    clearCache();
 }
 
 //------------------------------------------------------------------------------
@@ -138,20 +189,24 @@ void GlyphRenderer::renderPath(const std::vector<tvg::PathCommand>& commands,
 
 void GlyphRenderer::renderBitmap(const GlyphBitmap& bitmap,
                                  float x, float y,
-                                 float /*scale*/) {
+                                 float scale) {
     if (bitmap.data.empty() || !canvas_) {
         return;
     }
     
     // thorvg Picture を使用してビットマップを描画
-    tvg::Picture* picture = tvg::Picture::gen();
+    // ~Picture は protected のため tvg::Paint::rel() でリソース解放する
+    struct TvgPictureDeleter {
+        void operator()(tvg::Picture* p) const { tvg::Paint::rel(p); }
+    };
+    auto picture = std::unique_ptr<tvg::Picture, TvgPictureDeleter>(tvg::Picture::gen());
     if (!picture) return;
-    
+
     // RGBA データを ARGB (32bit) に変換
     // bitmap.data は RGBA8888 形式
     size_t pixelCount = static_cast<size_t>(bitmap.width) * bitmap.height;
     std::vector<uint32_t> argbData(pixelCount);
-    
+
     for (size_t i = 0; i < pixelCount; ++i) {
         uint8_t r = bitmap.data[i * 4 + 0];
         uint8_t g = bitmap.data[i * 4 + 1];
@@ -163,7 +218,7 @@ void GlyphRenderer::renderBitmap(const GlyphBitmap& bitmap,
                       (static_cast<uint32_t>(g) << 8) |
                       static_cast<uint32_t>(b);
     }
-    
+
     tvg::Result result = picture->load(
         argbData.data(),
         static_cast<uint32_t>(bitmap.width),
@@ -171,21 +226,20 @@ void GlyphRenderer::renderBitmap(const GlyphBitmap& bitmap,
         tvg::ColorSpace::ARGB8888,
         true  // copy
     );
-    
+
     if (result != tvg::Result::Success) {
-        // add されていない Picture は thorvg が管理しないのでリークする可能性があるが、
-        // thorvg の仕様上 protected destructor のため delete できない
-        // ただし gen() で作成したものは実際には delete 可能のはず
-        // 安全のため一旦何もしない（リークを許容）
-        // TODO: thorvg の適切なリソース解放方法を調査
+        // unique_ptr がスコープを抜けると自動的に delete される
         return;
     }
-    
+
     // スケールと位置を設定
-    // picture->scale(scale);  // スケールは別途対応
+    if (scale != 1.0f) {
+        picture->scale(scale);
+    }
     picture->translate(x, y);
-    
-    canvas_->add(picture);
+
+    // canvas に追加（所有権を移譲）
+    canvas_->add(picture.release());
 }
 
 } // namespace richtext

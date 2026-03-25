@@ -53,6 +53,10 @@ public:
         // 上付き/下付き
         bool isSuperscript = false;     ///< 上付き文字
         bool isSubscript = false;       ///< 下付き文字
+
+        /// Y 方向オフセット（ピクセル単位、正の値が下方向）
+        /// sup/sub タグで設定される。描画時にベースライン Y に加算する。
+        float yOffset = 0.0f;
     };
     
     /**

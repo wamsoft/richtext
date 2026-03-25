@@ -5,6 +5,7 @@
  */
 
 #include "richtext/TagParser.hpp"
+#include "richtext/FontManager.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -39,6 +40,7 @@ struct TagParser::ParseState {
         bool hasStrikethrough = false;
         bool isSuperscript = false;
         bool isSubscript = false;
+        float yOffset = 0.0f;
     };
     std::stack<StyleContext> styleStack;
     
@@ -256,6 +258,7 @@ TagParser::ParseResult TagParser::parse(
         span.hasStrikethrough = ctx.hasStrikethrough;
         span.isSuperscript = ctx.isSuperscript;
         span.isSubscript = ctx.isSubscript;
+        span.yOffset = ctx.yOffset;
         
         if (span.end > span.start) {
             state.spans.push_back(span);
@@ -268,14 +271,37 @@ TagParser::ParseResult TagParser::parse(
         state.styleStack.pop();
     }
     
-    // デフォルトスパンの追加（テキスト全体）
-    if (state.spans.empty() && !state.plainText.empty()) {
-        TextSpan span;
-        span.start = 0;
-        span.end = state.plainText.size();
-        span.style = defaultStyle;
-        span.appearance = defaultAppearance;
-        state.spans.push_back(span);
+    // ギャップ補填：タグで覆われていない領域にデフォルトスパンを挿入
+    if (!state.plainText.empty()) {
+        // 既存スパンを start 順にソート
+        std::sort(state.spans.begin(), state.spans.end(),
+                  [](const TextSpan& a, const TextSpan& b) { return a.start < b.start; });
+
+        std::vector<TextSpan> filled;
+        size_t cursor = 0;
+        for (const auto& sp : state.spans) {
+            if (sp.start > cursor) {
+                // cursor..sp.start の隙間をデフォルトスパンで埋める
+                TextSpan gap;
+                gap.start = cursor;
+                gap.end = sp.start;
+                gap.style = defaultStyle;
+                gap.appearance = defaultAppearance;
+                filled.push_back(gap);
+            }
+            filled.push_back(sp);
+            if (sp.end > cursor) cursor = sp.end;
+        }
+        // 末尾の隙間
+        if (cursor < state.plainText.size()) {
+            TextSpan gap;
+            gap.start = cursor;
+            gap.end = state.plainText.size();
+            gap.style = defaultStyle;
+            gap.appearance = defaultAppearance;
+            filled.push_back(gap);
+        }
+        state.spans = std::move(filled);
     }
     
     // 結果を構築
@@ -352,6 +378,7 @@ bool TagParser::parseTag(
     bool hasStrikethrough = false;
     bool isSuperscript = false;
     bool isSubscript = false;
+    float yOffset = 0.0f;
     bool isVoidTag = false;  // 閉じタグ不要のタグ
     
     if (tagName == "font") {
@@ -367,9 +394,12 @@ bool TagParser::parseTag(
     } else if (tagName == "sup") {
         newStyle = applySupTag(state.currentStyle);
         isSuperscript = true;
+        // Y オフセットは現在のフォントサイズ基準（em単位 → ピクセル変換）
+        yOffset = options_.supOffset * state.currentStyle.fontSize;
     } else if (tagName == "sub") {
         newStyle = applySubTag(state.currentStyle);
         isSubscript = true;
+        yOffset = options_.subOffset * state.currentStyle.fontSize;
     } else if (tagName == "color") {
         newAppearance = applyColorTag(state.currentAppearance, attrs);
     } else if (tagName == "outline") {
@@ -437,7 +467,8 @@ bool TagParser::parseTag(
     ctx.hasStrikethrough = hasStrikethrough;
     ctx.isSuperscript = isSuperscript;
     ctx.isSubscript = isSubscript;
-    
+    ctx.yOffset = yOffset;
+
     state.styleStack.push(ctx);
     state.currentStyle = newStyle;
     state.currentAppearance = newAppearance;
@@ -495,11 +526,12 @@ bool TagParser::parseCloseTag(const std::u16string& text, size_t& pos, ParseStat
     span.hasStrikethrough = top.hasStrikethrough;
     span.isSuperscript = top.isSuperscript;
     span.isSubscript = top.isSubscript;
-    
+    span.yOffset = top.yOffset;
+
     if (span.end > span.start) {
         state.spans.push_back(span);
     }
-    
+
     state.styleStack.pop();
     
     // 親のスタイルに戻す
@@ -637,9 +669,15 @@ TextStyle TagParser::applyFontTag(const TextStyle& current,
     if (it != attrs.end()) {
         style.letterSpacing = parseFloat(it->second);
     }
-    
-    // TODO: face 属性でフォントファミリを変更
-    
+
+    it = attrs.find("face");
+    if (it != attrs.end() && !it->second.empty()) {
+        auto collection = FontManager::instance().createCollection({it->second});
+        if (collection) {
+            style.fontCollection = collection;
+        }
+    }
+
     return style;
 }
 
@@ -658,14 +696,12 @@ TextStyle TagParser::applyItalicTag(const TextStyle& current) {
 TextStyle TagParser::applySupTag(const TextStyle& current) {
     TextStyle style = current;
     style.fontSize = current.fontSize * options_.supScale;
-    // TODO: Y オフセットの適用
     return style;
 }
 
 TextStyle TagParser::applySubTag(const TextStyle& current) {
     TextStyle style = current;
     style.fontSize = current.fontSize * options_.subScale;
-    // TODO: Y オフセットの適用
     return style;
 }
 

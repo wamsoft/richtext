@@ -94,7 +94,7 @@ void ParagraphLayout::layout(const std::u16string& text,
             static_cast<uint32_t>(run.start),
             static_cast<uint32_t>(run.end),
             std::move(paint),
-            false  // isRtl
+            minikin::isRtl(run.style.bidi)
         );
     }
     

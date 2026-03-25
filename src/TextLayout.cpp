@@ -55,7 +55,7 @@ void TextLayout::doLayout() {
     layout_ = minikin::Layout(
         textPiece,
         range,
-        minikin::Bidi::LTR,  // TODO: 双方向テキスト対応
+        style_.bidi,
         paint,
         startHyphen,
         endHyphen

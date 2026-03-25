@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.31)
 
+project(dummy)
+
 set(TPSTUB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../tp_stub CACHE PATH "Path to tp_stub directory")
 include(${TPSTUB_DIR}/krkrz.cmake)
 
@@ -86,4 +88,8 @@ krkrz_plugin(richtext
 add_executable(sample_render sample/sample_render.cpp)
 target_link_libraries(sample_render PRIVATE richtext_lib)
 target_compile_options(sample_render PRIVATE /utf-8)
+
+add_executable(debug_bidi sample/debug_bidi.cpp)
+target_link_libraries(debug_bidi PRIVATE richtext_lib)
+target_compile_options(debug_bidi PRIVATE /utf-8)
 
