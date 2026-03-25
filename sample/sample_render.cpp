@@ -3,6 +3,8 @@
  *
  * richtext ライブラリのサンプル実行プログラム
  * ビットマップに描画して BMP ファイルとして出力
+ *
+ * data/ 以下の Noto フォントを使用
  */
 
 #include <cstdio>
@@ -121,7 +123,54 @@ std::u16string utf8ToUtf16(const std::string& utf8) {
     return result;
 }
 
-// セクションラベルを描画するヘルパー（デバッグ用、ASCII のみ）
+//------------------------------------------------------------------------------
+// 枠線描画ヘルパー（デバッグ用）
+//------------------------------------------------------------------------------
+
+/**
+ * ピクセルバッファに矩形枠線を描画する
+ * @param buffer   ARGB ピクセルバッファ
+ * @param bufW     バッファ幅
+ * @param bufH     バッファ高さ
+ * @param x, y     矩形左上座標
+ * @param w, h     矩形サイズ
+ * @param color    枠線色（ARGB）
+ * @param thickness 枠線の太さ（ピクセル）
+ */
+void drawRect(uint32_t* buffer, int bufW, int bufH,
+              int x, int y, int w, int h,
+              uint32_t color = 0xFFCC4444, int thickness = 1) {
+    auto putPixel = [&](int px, int py) {
+        if (px >= 0 && px < bufW && py >= 0 && py < bufH) {
+            buffer[py * bufW + px] = color;
+        }
+    };
+
+    for (int t = 0; t < thickness; ++t) {
+        // 上辺
+        for (int px = x; px < x + w; ++px) putPixel(px, y + t);
+        // 下辺
+        for (int px = x; px < x + w; ++px) putPixel(px, y + h - 1 - t);
+        // 左辺
+        for (int py = y; py < y + h; ++py) putPixel(x + t, py);
+        // 右辺
+        for (int py = y; py < y + h; ++py) putPixel(x + w - 1 - t, py);
+    }
+}
+
+/**
+ * RectF を使った枠線描画（float → int 変換付き）
+ */
+void drawRectF(uint32_t* buffer, int bufW, int bufH,
+               const richtext::RectF& rect,
+               uint32_t color = 0xFFCC4444, int thickness = 1) {
+    drawRect(buffer, bufW, bufH,
+             static_cast<int>(rect.x), static_cast<int>(rect.y),
+             static_cast<int>(rect.width), static_cast<int>(rect.height),
+             color, thickness);
+}
+
+// セクションラベルを描画するヘルパー
 void drawSectionLabel(richtext::TextRenderer& renderer,
                       const richtext::TextStyle& style,
                       const std::string& label, float x, float y) {
@@ -145,50 +194,48 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 1400;
+    const int HEIGHT = 2800;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
-    // 1. フォントの登録
+    // 1. Noto フォントの登録（data/ ディレクトリ）
     //--------------------------------------------------------------------------
-    printf("1. Registering fonts...\n");
+    printf("1. Registering Noto fonts from data/...\n");
 
     auto& fm = richtext::FontManager::instance();
 
-    // 日本語フォント
-    const char* jaFontPaths[] = {
-        "C:/Windows/Fonts/msgothic.ttc",
-        "C:/Windows/Fonts/meiryo.ttc",
-        "C:/Windows/Fonts/YuGothM.ttc",
-    };
-    bool jaRegistered = false;
-    for (const char* p : jaFontPaths) {
-        if (fm.registerFont(p, "ja")) {
-            printf("   [ja] %s\n", p); jaRegistered = true; break;
-        }
-    }
-    if (!jaRegistered) {
-        fprintf(stderr, "ERROR: No Japanese font found.\n"); return 1;
-    }
+    // data/ ディレクトリのパス（トップディレクトリから実行する前提）
+    const std::string dataDir = "./data/";
 
-    // アラビア語 / 多言語対応フォント（RTL テスト用）
-    const char* arFontPaths[] = {
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/tahoma.ttf",
-        "C:/Windows/Fonts/calibri.ttf",
-        "C:/Windows/Fonts/times.ttf",
+    struct FontEntry {
+        const char* file;
+        const char* name;
     };
-    bool arRegistered = false;
-    for (const char* p : arFontPaths) {
-        if (fm.registerFont(p, "ar")) {
-            printf("   [ar] %s\n", p); arRegistered = true; break;
+    FontEntry fonts[] = {
+        {"NotoSans-Regular.ttf",        "sans"},
+        {"NotoSansJP-Regular.otf",      "ja"},
+        {"NotoSansKR-Regular.otf",      "ko"},
+        {"NotoSansSC-Regular.otf",      "zh-hans"},
+        {"NotoSansTC-Regular.otf",      "zh-hant"},
+        {"NotoSansArabic-Regular.ttf",  "ar"},
+        {"NotoNaskhArabic-Regular.ttf", "ar-naskh"},
+        {"NotoColorEmoji.ttf",          "emoji"},
+        {"NotoEmoji-Regular.ttf",       "emoji-mono"},
+    };
+
+    for (const auto& f : fonts) {
+        std::string path = dataDir + f.file;
+        if (fm.registerFont(path, f.name)) {
+            printf("   [%s] %s\n", f.name, f.file);
+        } else {
+            fprintf(stderr, "   [%s] FAILED: %s\n", f.name, f.file);
         }
-    }
-    if (!arRegistered) {
-        printf("   [ar] No Arabic font found; bidi tests may show placeholders.\n");
     }
 
     fm.registerLocale("ja_JP-u-lb-strict");
+    fm.registerLocale("ko_KR");
+    fm.registerLocale("zh_CN");
+    fm.registerLocale("zh_TW");
     fm.registerLocale("ar");
 
     //--------------------------------------------------------------------------
@@ -199,35 +246,30 @@ int main(int argc, char* argv[]) {
     renderer.setCanvas(buffer.data(), WIDTH, HEIGHT, WIDTH * sizeof(uint32_t));
 
     //--------------------------------------------------------------------------
-    // 3. スタイル・外観の設定
+    // 3. フォントコレクション・スタイルの設定
     //--------------------------------------------------------------------------
-    printf("\n3. Setting up styles...\n");
+    printf("\n3. Setting up font collections and styles...\n");
 
-    // 日本語コレクション（ja のみ）
-    auto jaCollection = fm.createCollection({"ja"});
-
-    // 多言語コレクション（ar → ja フォールバック）
-    auto multiCollection = arRegistered
-        ? fm.createCollection({"ar", "ja"})
-        : fm.createCollection({"ja"});
+    // 各言語用コレクション（フォールバックチェーン付き）
+    auto jaCollection = fm.createCollection({"ja", "sans", "emoji"});
+    auto koCollection = fm.createCollection({"ko", "sans", "emoji"});
+    auto zhCollection = fm.createCollection({"zh-hans", "sans", "emoji"});
+    auto multiCollection = fm.createCollection({"sans", "ja", "ko", "zh-hans", "ar", "emoji"});
 
     auto makeStyle = [&](std::shared_ptr<minikin::FontCollection> col,
-                         float size, uint16_t weight = 400) {
+                         float size, uint16_t weight = 400,
+                         const char* locale = "ja_JP-u-lb-strict") {
         richtext::TextStyle s;
         s.fontCollection = col;
         s.fontSize       = size;
         s.fontWeight     = weight;
-        s.localeId       = fm.getLocaleId("ja_JP-u-lb-strict");
+        s.localeId       = fm.getLocaleId(locale);
         return s;
     };
 
     richtext::TextStyle baseStyle = makeStyle(jaCollection, 28.0f);
 
     // 外観
-    richtext::Appearance whiteOutline;
-    whiteOutline.addStroke(0xFF000000, 2.5f);
-    whiteOutline.addFill(0xFFFFFFFF);
-
     richtext::Appearance blackFill;
     blackFill.addFill(0xFF111111);
 
@@ -240,6 +282,10 @@ int main(int argc, char* argv[]) {
     richtext::Appearance greenFill;
     greenFill.addFill(0xFF007700);
 
+    richtext::Appearance whiteOutline;
+    whiteOutline.addStroke(0xFF000000, 2.5f);
+    whiteOutline.addFill(0xFFFFFFFF);
+
     richtext::Appearance shadowBlue;
     shadowBlue.addFill(0x60000000, 3.0f, 3.0f);
     shadowBlue.addFill(0xFF0055AA);
@@ -248,12 +294,19 @@ int main(int argc, char* argv[]) {
     const float LINE = 48.0f;
     const float SECTION = 30.0f;
     const float LEFT = 40.0f;
+    const float PARA_W = WIDTH - LEFT * 2;
+
+    // 枠線色の定義
+    const uint32_t BORDER_RED    = 0xFFDD4444;
+    const uint32_t BORDER_BLUE   = 0xFF4444DD;
+    const uint32_t BORDER_GREEN  = 0xFF44AA44;
+    const uint32_t BORDER_ORANGE = 0xFFDD8800;
 
     //--------------------------------------------------------------------------
-    // 4. 基本テキスト
+    // 4. 基本テキスト（Notoフォント確認）
     //--------------------------------------------------------------------------
-    printf("\n4. Basic text...\n");
-    drawSectionLabel(renderer, baseStyle, "[4] Basic LTR text", LEFT, y);
+    printf("\n4. Basic text with Noto fonts...\n");
+    drawSectionLabel(renderer, baseStyle, "[4] Basic LTR text (Noto Sans JP)", LEFT, y);
     y += 18;
     renderer.drawText(utf8ToUtf16("Hello, richtext! 0123456789"),
                       LEFT, y, baseStyle, whiteOutline);
@@ -277,21 +330,24 @@ int main(int argc, char* argv[]) {
     y += LINE + SECTION;
 
     //--------------------------------------------------------------------------
-    // 6. パラグラフ（行分割・左揃え）
+    // 6. パラグラフ（行分割・左揃え）＋枠線表示
     //--------------------------------------------------------------------------
-    printf("\n6. Paragraph (left-aligned)...\n");
-    drawSectionLabel(renderer, baseStyle, "[6] Paragraph - Left", LEFT, y);
+    printf("\n6. Paragraph (left-aligned) with border...\n");
+    drawSectionLabel(renderer, baseStyle, "[6] Paragraph - Left (with border)", LEFT, y);
     y += 18;
 
-    richtext::TextStyle paraStyle = makeStyle(jaCollection, 22.0f);
-    richtext::RectF paraRect(LEFT, y, WIDTH - LEFT * 2, 120.0f);
-    renderer.drawParagraph(
-        utf8ToUtf16("これは複数行のパラグラフです。minikin の行分割アルゴリズムによって、"
-                    "指定した幅に収まるよう自動的に改行されます。日本語の禁則処理も適用されます。"),
-        paraRect,
-        richtext::ParagraphLayout::HAlign::Left,
-        richtext::ParagraphLayout::VAlign::Top,
-        paraStyle, blackFill);
+    {
+        richtext::TextStyle paraStyle = makeStyle(jaCollection, 22.0f);
+        richtext::RectF paraRect(LEFT, y, PARA_W, 120.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, paraRect, BORDER_RED, 2);
+        renderer.drawParagraph(
+            utf8ToUtf16("これは複数行のパラグラフです。minikin の行分割アルゴリズムによって、"
+                        "指定した幅に収まるよう自動的に改行されます。日本語の禁則処理も適用されます。"),
+            paraRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            paraStyle, blackFill);
+    }
     y += 130 + SECTION;
 
     //--------------------------------------------------------------------------
@@ -301,20 +357,23 @@ int main(int argc, char* argv[]) {
     drawSectionLabel(renderer, baseStyle, "[7] Tagged text (drawStyledText)", LEFT, y);
     y += 18;
 
-    std::map<std::string, richtext::TextStyle>    styles;
-    std::map<std::string, richtext::Appearance>   appearances;
-    styles["default"]      = makeStyle(jaCollection, 28.0f);
-    appearances["default"] = blackFill;
+    {
+        std::map<std::string, richtext::TextStyle>    styles;
+        std::map<std::string, richtext::Appearance>   appearances;
+        styles["default"]      = makeStyle(jaCollection, 28.0f);
+        appearances["default"] = blackFill;
 
-    richtext::RectF tagRect(LEFT, y, WIDTH - LEFT * 2, 100.0f);
-    renderer.drawStyledText(
-        utf8ToUtf16("<b>太字</b>と<i>斜体</i>と"
-                    "<color value=0xFFCC0000>赤色</color>と"
-                    "<font size=36>大きな</font>テキスト"),
-        tagRect,
-        richtext::ParagraphLayout::HAlign::Left,
-        richtext::ParagraphLayout::VAlign::Top,
-        styles, appearances);
+        richtext::RectF tagRect(LEFT, y, PARA_W, 100.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, tagRect, BORDER_BLUE);
+        renderer.drawStyledText(
+            utf8ToUtf16("<b>太字</b>と<i>斜体</i>と"
+                        "<color value=0xFFCC0000>赤色</color>と"
+                        "<font size=36>大きな</font>テキスト"),
+            tagRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+    }
     y += 50 + SECTION;
 
     //--------------------------------------------------------------------------
@@ -324,16 +383,20 @@ int main(int argc, char* argv[]) {
     drawSectionLabel(renderer, baseStyle, "[8] Superscript / Subscript", LEFT, y);
     y += 18;
 
-    styles["default"]      = makeStyle(jaCollection, 28.0f);
-    appearances["default"] = blackFill;
+    {
+        std::map<std::string, richtext::TextStyle>    styles;
+        std::map<std::string, richtext::Appearance>   appearances;
+        styles["default"]      = makeStyle(jaCollection, 28.0f);
+        appearances["default"] = blackFill;
 
-    richtext::RectF supRect(LEFT, y, WIDTH - LEFT * 2, 60.0f);
-    renderer.drawStyledText(
-        utf8ToUtf16("H<sub>2</sub>O  E=mc<sup>2</sup>  x<sup>n+1</sup> = x<sup>n</sup> + 1"),
-        supRect,
-        richtext::ParagraphLayout::HAlign::Left,
-        richtext::ParagraphLayout::VAlign::Top,
-        styles, appearances);
+        richtext::RectF supRect(LEFT, y, PARA_W, 60.0f);
+        renderer.drawStyledText(
+            utf8ToUtf16("H<sub>2</sub>O  E=mc<sup>2</sup>  x<sup>n+1</sup> = x<sup>n</sup> + 1"),
+            supRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+    }
     y += 60 + SECTION;
 
     //--------------------------------------------------------------------------
@@ -343,18 +406,22 @@ int main(int argc, char* argv[]) {
     drawSectionLabel(renderer, baseStyle, "[9] Outline / Shadow via tags", LEFT, y);
     y += 18;
 
-    styles["default"]      = makeStyle(jaCollection, 30.0f);
-    appearances["default"] = blackFill;
+    {
+        std::map<std::string, richtext::TextStyle>    styles;
+        std::map<std::string, richtext::Appearance>   appearances;
+        styles["default"]      = makeStyle(jaCollection, 30.0f);
+        appearances["default"] = blackFill;
 
-    richtext::RectF fxRect(LEFT, y, WIDTH - LEFT * 2, 60.0f);
-    renderer.drawStyledText(
-        utf8ToUtf16("<outline color=0xFF000000 width=3><color value=0xFFFFDD00>縁取りテキスト</color></outline>"
-                    "　"
-                    "<shadow color=0x88000000 x=3 y=3>影テキスト</shadow>"),
-        fxRect,
-        richtext::ParagraphLayout::HAlign::Left,
-        richtext::ParagraphLayout::VAlign::Top,
-        styles, appearances);
+        richtext::RectF fxRect(LEFT, y, PARA_W, 60.0f);
+        renderer.drawStyledText(
+            utf8ToUtf16("<outline color=0xFF000000 width=3><color value=0xFFFFDD00>縁取りテキスト</color></outline>"
+                        "　"
+                        "<shadow color=0x88000000 x=3 y=3>影テキスト</shadow>"),
+            fxRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+    }
     y += 60 + SECTION;
 
     //--------------------------------------------------------------------------
@@ -362,149 +429,236 @@ int main(int argc, char* argv[]) {
     //--------------------------------------------------------------------------
     printf("\n10. Bidirectional text (Bidi)...\n");
 
-    // 10a. DEFAULT_LTR（自動判定）で混在テキスト
-    drawSectionLabel(renderer, baseStyle, "[10a] Mixed LTR+RTL (DEFAULT_LTR, auto-detect)", LEFT, y);
+    // 10a. DEFAULT_LTR で混在テキスト
+    drawSectionLabel(renderer, baseStyle, "[10a] Mixed LTR+RTL (DEFAULT_LTR)", LEFT, y);
     y += 18;
     {
         richtext::TextStyle mixStyle = makeStyle(multiCollection, 28.0f);
         mixStyle.bidi = minikin::Bidi::DEFAULT_LTR;
-
-        // アラビア語「مرحبا」（マルハバ = Hello）を含む混在テキスト
         std::u16string mixedText = utf8ToUtf16("Hello \u0645\u0631\u062D\u0628\u0627 World");
         renderer.drawText(mixedText, LEFT, y, mixStyle, blackFill);
-        printf("   DEFAULT_LTR: \"Hello مرحبا World\"\n");
     }
     y += LINE + 8;
 
-    // 10b. DEFAULT_RTL（自動判定・RTL優先）で同テキスト
+    // 10b. DEFAULT_RTL で同テキスト
     drawSectionLabel(renderer, baseStyle, "[10b] Same text with DEFAULT_RTL", LEFT, y);
     y += 18;
     {
         richtext::TextStyle rtlStyle = makeStyle(multiCollection, 28.0f);
         rtlStyle.bidi = minikin::Bidi::DEFAULT_RTL;
-
         std::u16string mixedText = utf8ToUtf16("Hello \u0645\u0631\u062D\u0628\u0627 World");
         renderer.drawText(mixedText, LEFT, y, rtlStyle, blackFill);
-        printf("   DEFAULT_RTL: \"Hello مرحبا World\"\n");
-    }
-    y += LINE + 8;
-
-    // 10c. FORCE_RTL（強制 RTL）でアラビア語のみ
-    drawSectionLabel(renderer, baseStyle, "[10c] Arabic only (FORCE_RTL)", LEFT, y);
-    y += 18;
-    {
-        richtext::TextStyle arStyle = makeStyle(multiCollection, 28.0f);
-        arStyle.bidi = minikin::Bidi::FORCE_RTL;
-
-        // アラビア語「مرحبا بالعالم」（Hello World）
-        std::u16string arText = utf8ToUtf16("\u0645\u0631\u062D\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645");
-        renderer.drawText(arText, LEFT, y, arStyle, blackFill);
-        printf("   FORCE_RTL:   \"مرحبا بالعالم\"\n");
-    }
-    y += LINE + 8;
-
-    // 10d. FORCE_LTR（強制 LTR）で同じアラビア語テキスト（比較用）
-    drawSectionLabel(renderer, baseStyle, "[10d] Arabic with FORCE_LTR (for comparison)", LEFT, y);
-    y += 18;
-    {
-        richtext::TextStyle ltrStyle = makeStyle(multiCollection, 28.0f);
-        ltrStyle.bidi = minikin::Bidi::FORCE_LTR;
-
-        std::u16string arText = utf8ToUtf16("\u0645\u0631\u062D\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645");
-        renderer.drawText(arText, LEFT, y, ltrStyle, blackFill);
-        printf("   FORCE_LTR:   \"مرحبا بالعالم\" (rendered L->R)\n");
-    }
-    y += LINE + 8;
-
-    // 10e. RTL パラグラフ（複数行、右揃え）
-    drawSectionLabel(renderer, baseStyle, "[10e] RTL Paragraph (right-aligned)", LEFT, y);
-    y += 18;
-    {
-        richtext::TextStyle rtlParaStyle = makeStyle(multiCollection, 24.0f);
-        rtlParaStyle.bidi = minikin::Bidi::DEFAULT_RTL;
-
-        // ヘブライ語「שלום עולם」+ アラビア語の段落（折り返し確認）
-        std::u16string rtlText = utf8ToUtf16(
-            "\u0645\u0631\u062D\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645\u060C "
-            "\u0647\u0630\u0627 \u0646\u0635 \u0639\u0631\u0628\u064A "
-            "\u0644\u0627\u062E\u062A\u0628\u0627\u0631 \u0627\u0644\u0643\u062A\u0627\u0628\u0629 "
-            "\u0645\u0646 \u0627\u0644\u064A\u0645\u064A\u0646 \u0625\u0644\u0649 \u0627\u0644\u064A\u0633\u0627\u0631.");
-
-        richtext::RectF rtlParaRect(LEFT, y, WIDTH - LEFT * 2, 110.0f);
-
-        // ParagraphLayout を直接使って RTL スタイルラン付きで描画
-        richtext::ParagraphLayout para;
-        richtext::ParagraphLayout::StyleRun run;
-        run.start = 0;
-        run.end   = rtlText.size();
-        run.style = rtlParaStyle;
-        para.layout(rtlText, rtlParaRect.width, {run});
-
-        richtext::Appearance darkGray;
-        darkGray.addFill(0xFF222222);
-
-        for (size_t li = 0; li < para.getLineCount(); ++li) {
-            auto pos = para.getLinePosition(li,
-                rtlParaRect.x, rtlParaRect.y,
-                rtlParaRect.width, rtlParaRect.height,
-                richtext::ParagraphLayout::HAlign::Right,
-                richtext::ParagraphLayout::VAlign::Top);
-            richtext::TextLayout lineLayout = para.getLineLayout(li, rtlParaStyle);
-            renderer.drawLayout(lineLayout, pos.x, pos.y, darkGray);
-        }
-        printf("   RTL paragraph drawn.\n");
-    }
-    y += 120 + SECTION;
-
-    // 10f. ヘブライ語テキスト（Hebrew shalom）
-    drawSectionLabel(renderer, baseStyle, "[10f] Hebrew text (DEFAULT_RTL)", LEFT, y);
-    y += 18;
-    {
-        richtext::TextStyle heStyle = makeStyle(multiCollection, 28.0f);
-        heStyle.bidi = minikin::Bidi::DEFAULT_RTL;
-
-        // שלום עולם = Shalom Olam (Hello World)
-        std::u16string heText = utf8ToUtf16("\u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD");
-        renderer.drawText(heText, LEFT, y, heStyle, blackFill);
-        printf("   Hebrew: \"שלום עולם\" (Shalom Olam)\n");
     }
     y += LINE + SECTION;
 
-    //--------------------------------------------------------------------------
-    // 11. Bidi × タグ付きテキスト
-    //--------------------------------------------------------------------------
-    printf("\n11. Bidi + tagged text...\n");
-    drawSectionLabel(renderer, baseStyle, "[11] Bidi in tagged text", LEFT, y);
+    //==========================================================================
+    // 11. 日本語長文テキスト折り返しサンプル（絵文字付き）
+    //==========================================================================
+    printf("\n11. Japanese long text with word wrap and emoji...\n");
+    drawSectionLabel(renderer, baseStyle, "[11] Japanese long text + emoji (with border)", LEFT, y);
     y += 18;
 
     {
-        // タグ付きテキスト内でフォントを切り替えてアラビア語と日本語を混在
-        richtext::TextStyle tagBaseStyle = makeStyle(multiCollection, 26.0f);
-        tagBaseStyle.bidi = minikin::Bidi::DEFAULT_LTR;
-
-        std::map<std::string, richtext::TextStyle>  bidiStyles;
-        std::map<std::string, richtext::Appearance> bidiApps;
-        bidiStyles["default"]      = tagBaseStyle;
-        bidiApps["default"]        = blackFill;
-
-        richtext::RectF bidiTagRect(LEFT, y, WIDTH - LEFT * 2, 60.0f);
-        renderer.drawStyledText(
-            utf8ToUtf16("LTR: <color value=0xFF0033CC>Hello</color>"
-                        " RTL: <color value=0xFFCC0000>\u0645\u0631\u062D\u0628\u0627</color>"
-                        " \u65E5\u672C\u8A9E"),  // 日本語
-            bidiTagRect,
+        richtext::TextStyle jaStyle = makeStyle(jaCollection, 24.0f, 400, "ja_JP-u-lb-strict");
+        richtext::RectF jaRect(LEFT, y, PARA_W, 200.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, jaRect, BORDER_RED, 2);
+        renderer.drawParagraph(
+            utf8ToUtf16(
+                "吾輩は猫である。名前はまだ無い。\U0001F431"
+                "どこで生れたかとんと見当がつかぬ。何でも薄暗いじめじめした所で"
+                "ニャーニャー泣いていた事だけは記憶している。\U0001F63F"
+                "吾輩はここで始めて人間というものを見た。"
+                "しかもあとで聞くとそれは書生という人間中で一番獰悪な種族であったそうだ。\U0001F4DA"
+                "この書生というのは時々我々を捕えて煮て食うという話である。\U0001F372"),
+            jaRect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
-            bidiStyles, bidiApps);
+            jaStyle, blackFill);
     }
-    y += 60 + SECTION;
+    y += 210 + SECTION;
+
+    //==========================================================================
+    // 12. 韓国語長文テキスト折り返しサンプル（絵文字付き）
+    //==========================================================================
+    printf("\n12. Korean long text with word wrap and emoji...\n");
+    drawSectionLabel(renderer, baseStyle, "[12] Korean long text + emoji (with border)", LEFT, y);
+    y += 18;
+
+    {
+        richtext::TextStyle koStyle = makeStyle(koCollection, 24.0f, 400, "ko_KR");
+        richtext::RectF koRect(LEFT, y, PARA_W, 200.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, koRect, BORDER_BLUE, 2);
+        renderer.drawParagraph(
+            utf8ToUtf16(
+                "모든 인간은 태어날 때부터 자유로우며 그 존엄과 권리에 있어 동등하다. \U0001F30F"
+                "인간은 천부적으로 이성과 양심을 부여받았으며 서로 형제애의 정신으로 행동하여야 한다. \U0001F91D"
+                "모든 사람은 인종, 피부색, 성별, 언어, 종교에 따른 어떠한 차별도 없이 "
+                "이 선언에 규정된 모든 권리와 자유를 향유할 자격이 있다. \U0001F3F3\uFE0F"),
+            koRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            koStyle, blackFill);
+    }
+    y += 210 + SECTION;
+
+    //==========================================================================
+    // 13. 中国語（簡体字）長文テキスト折り返しサンプル（絵文字付き）
+    //==========================================================================
+    printf("\n13. Chinese (Simplified) long text with word wrap and emoji...\n");
+    drawSectionLabel(renderer, baseStyle, "[13] Chinese (Simplified) long text + emoji (with border)", LEFT, y);
+    y += 18;
+
+    {
+        richtext::TextStyle zhStyle = makeStyle(zhCollection, 24.0f, 400, "zh_CN");
+        richtext::RectF zhRect(LEFT, y, PARA_W, 200.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, zhRect, BORDER_GREEN, 2);
+        renderer.drawParagraph(
+            utf8ToUtf16(
+                "人人生而自由，在尊严和权利上一律平等。\U0001F30D"
+                "他们赋有理性和良心，并应以兄弟关系的精神相对待。\U0001F91D"
+                "人人有资格享有本宣言所载的一切权利和自由，不分种族、肤色、性别、语言、"
+                "宗教、政治或其他见解、国籍或社会出身、财产、出生或其他身分等任何区别。\U0001F3AF"
+                "此外，不得因一人所属的国家或领土的政治的、行政的或者国际的地位之不同而有所区别。\U0001F5FA"),
+            zhRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            zhStyle, blackFill);
+    }
+    y += 210 + SECTION;
+
+    //==========================================================================
+    // 14. フォントサイズ変更レイアウトサンプル
+    //==========================================================================
+    printf("\n14. Various font sizes layout...\n");
+    drawSectionLabel(renderer, baseStyle, "[14] Various font sizes (12, 18, 24, 36, 48, 64)", LEFT, y);
+    y += 22;
+
+    {
+        const float sizes[] = {12.0f, 18.0f, 24.0f, 36.0f, 48.0f, 64.0f};
+        const char* sizeLabels[] = {"12px", "18px", "24px", "36px", "48px", "64px"};
+
+        for (int i = 0; i < 6; ++i) {
+            richtext::TextStyle sizedStyle = makeStyle(jaCollection, sizes[i]);
+            char label[128];
+            snprintf(label, sizeof(label), "%s: こんにちは Hello", sizeLabels[i]);
+            renderer.drawText(utf8ToUtf16(label), LEFT, y, sizedStyle, blackFill);
+            y += sizes[i] * 1.5f;
+        }
+    }
+    y += SECTION;
+
+    //==========================================================================
+    // 15. タグによるフォントサイズ混在パラグラフ
+    //==========================================================================
+    printf("\n15. Mixed font sizes in paragraph via tags...\n");
+    drawSectionLabel(renderer, baseStyle, "[15] Mixed font sizes in paragraph (with border)", LEFT, y);
+    y += 18;
+
+    {
+        std::map<std::string, richtext::TextStyle>    styles;
+        std::map<std::string, richtext::Appearance>   appearances;
+        styles["default"]      = makeStyle(jaCollection, 20.0f);
+        appearances["default"] = blackFill;
+
+        richtext::RectF mixRect(LEFT, y, PARA_W, 200.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, mixRect, BORDER_ORANGE, 2);
+        renderer.drawStyledText(
+            utf8ToUtf16(
+                "<font size=14>小さなテキスト（14px）</font>"
+                "通常テキスト（20px）"
+                "<font size=28><b>中サイズ太字（28px）</b></font>"
+                "<font size=40><color value=0xFF0055AA>大きなテキスト（40px）</color></font>"
+                "<font size=16>また小さく（16px）</font>"
+                "そして<font size=52><color value=0xFFCC0000>最大（52px）</color></font>です。"),
+            mixRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+    }
+    y += 210 + SECTION;
+
+    //==========================================================================
+    // 16. CJK 3言語 + 絵文字混在パラグラフ
+    //==========================================================================
+    printf("\n16. CJK trilingual + emoji mixed paragraph...\n");
+    drawSectionLabel(renderer, baseStyle, "[16] CJK trilingual + emoji mixed (with border)", LEFT, y);
+    y += 18;
+
+    {
+        // 全言語対応コレクション
+        std::map<std::string, richtext::TextStyle>    styles;
+        std::map<std::string, richtext::Appearance>   appearances;
+        styles["default"]      = makeStyle(multiCollection, 22.0f);
+        appearances["default"] = blackFill;
+
+        richtext::RectF cjkRect(LEFT, y, PARA_W, 180.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, cjkRect, BORDER_RED, 2);
+        renderer.drawStyledText(
+            utf8ToUtf16(
+                "<color value=0xFFCC0000>日本語：</color>桜の花が咲きました。\U0001F338 "
+                "<color value=0xFF0033CC>한국어：</color>벚꽃이 피었습니다. \U0001F338 "
+                "<color value=0xFF007700>中文：</color>樱花开了。\U0001F338 "
+                "<color value=0xFF666666>English: Cherry blossoms are blooming.</color> \U0001F33A\U0001F33B\U0001F33C "
+                "\U0001F1EF\U0001F1F5\U0001F1F0\U0001F1F7\U0001F1E8\U0001F1F3"),
+            cjkRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+    }
+    y += 190 + SECTION;
+
+    //==========================================================================
+    // 17. アラインメント比較（左・中央・右）
+    //==========================================================================
+    printf("\n17. Alignment comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[17] Alignment: Left / Center / Right (with borders)", LEFT, y);
+    y += 18;
+
+    {
+        richtext::TextStyle alignStyle = makeStyle(jaCollection, 20.0f);
+        const float alignH = 80.0f;
+
+        // 左揃え
+        richtext::RectF leftRect(LEFT, y, PARA_W, alignH);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, leftRect, BORDER_RED);
+        renderer.drawParagraph(
+            utf8ToUtf16("左揃え（Left）テキストサンプル。行が折り返された場合でも左端に揃います。"),
+            leftRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            alignStyle, blackFill);
+        y += alignH + 8;
+
+        // 中央揃え
+        richtext::RectF centerRect(LEFT, y, PARA_W, alignH);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, centerRect, BORDER_BLUE);
+        renderer.drawParagraph(
+            utf8ToUtf16("中央揃え（Center）テキストサンプル。各行が中央に配置されます。"),
+            centerRect,
+            richtext::ParagraphLayout::HAlign::Center,
+            richtext::ParagraphLayout::VAlign::Top,
+            alignStyle, blueFill);
+        y += alignH + 8;
+
+        // 右揃え
+        richtext::RectF rightRect(LEFT, y, PARA_W, alignH);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, rightRect, BORDER_GREEN);
+        renderer.drawParagraph(
+            utf8ToUtf16("右揃え（Right）テキストサンプル。各行が右端に配置されます。"),
+            rightRect,
+            richtext::ParagraphLayout::HAlign::Right,
+            richtext::ParagraphLayout::VAlign::Top,
+            alignStyle, greenFill);
+    }
+    y += 90 + SECTION;
 
     //--------------------------------------------------------------------------
-    // 12. 描画同期・保存
+    // 18. 描画同期・保存
     //--------------------------------------------------------------------------
-    printf("\n12. Syncing and saving...\n");
+    printf("\n18. Syncing and saving...\n");
     renderer.sync();
 
+    // 枠線はバッファに直接描画済みなので sync 後に saveBMP
     if (saveBMP("output.bmp", buffer.data(), WIDTH, HEIGHT)) {
         printf("\nSuccess! Output saved to output.bmp\n");
     } else {
