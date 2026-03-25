@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 2800;
+    const int HEIGHT = 3050;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -527,10 +527,47 @@ int main(int argc, char* argv[]) {
     y += 210 + SECTION;
 
     //==========================================================================
-    // 14. フォントサイズ変更レイアウトサンプル
+    // 14. アラビア語長文テキスト折り返しサンプル（RTL・絵文字付き）
     //==========================================================================
-    printf("\n14. Various font sizes layout...\n");
-    drawSectionLabel(renderer, baseStyle, "[14] Various font sizes (12, 18, 24, 36, 48, 64)", LEFT, y);
+    printf("\n14. Arabic long text with word wrap and emoji (RTL)...\n");
+    drawSectionLabel(renderer, baseStyle, "[14] Arabic long text + emoji RTL (with border)", LEFT, y);
+    y += 18;
+
+    {
+        auto arCollection = fm.createCollection({"ar", "sans", "emoji"});
+        richtext::TextStyle arStyle = makeStyle(arCollection, 24.0f, 400, "ar");
+        arStyle.bidi = minikin::Bidi::DEFAULT_RTL;
+        richtext::RectF arRect(LEFT, y, PARA_W, 200.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, arRect, BORDER_ORANGE, 2);
+
+        // 世界人権宣言 第1条・第2条（アラビア語）
+        renderer.drawParagraph(
+            utf8ToUtf16(
+                "\u064A\u0648\u0644\u062F \u062C\u0645\u064A\u0639 \u0627\u0644\u0646\u0627\u0633 "
+                "\u0623\u062D\u0631\u0627\u0631\u064B\u0627 \u0645\u062A\u0633\u0627\u0648\u064A\u0646 "
+                "\u0641\u064A \u0627\u0644\u0643\u0631\u0627\u0645\u0629 \u0648\u0627\u0644\u062D\u0642\u0648\u0642. \U0001F30D "
+                "\u0648\u0642\u062F \u0648\u0647\u0628\u0648\u0627 \u0639\u0642\u0644\u064B\u0627 "
+                "\u0648\u0636\u0645\u064A\u0631\u064B\u0627 \u0648\u0639\u0644\u064A\u0647\u0645 "
+                "\u0623\u0646 \u064A\u0639\u0627\u0645\u0644 \u0628\u0639\u0636\u0647\u0645 "
+                "\u0628\u0639\u0636\u064B\u0627 \u0628\u0631\u0648\u062D "
+                "\u0627\u0644\u0625\u062E\u0627\u0621. \U0001F91D "
+                "\u0644\u0643\u0644 \u0625\u0646\u0633\u0627\u0646 \u062D\u0642 "
+                "\u0627\u0644\u062A\u0645\u062A\u0639 \u0628\u0643\u0627\u0641\u0629 "
+                "\u0627\u0644\u062D\u0642\u0648\u0642 \u0648\u0627\u0644\u062D\u0631\u064A\u0627\u062A "
+                "\u0627\u0644\u0648\u0627\u0631\u062F\u0629 \u0641\u064A \u0647\u0630\u0627 "
+                "\u0627\u0644\u0625\u0639\u0644\u0627\u0646. \U0001F3F3\uFE0F"),
+            arRect,
+            richtext::ParagraphLayout::HAlign::Right,
+            richtext::ParagraphLayout::VAlign::Top,
+            arStyle, blackFill);
+    }
+    y += 210 + SECTION;
+
+    //==========================================================================
+    // 15. フォントサイズ変更レイアウトサンプル
+    //==========================================================================
+    printf("\n15. Various font sizes layout...\n");
+    drawSectionLabel(renderer, baseStyle, "[15] Various font sizes (12, 18, 24, 36, 48, 64)", LEFT, y);
     y += 22;
 
     {
@@ -550,8 +587,8 @@ int main(int argc, char* argv[]) {
     //==========================================================================
     // 15. タグによるフォントサイズ混在パラグラフ
     //==========================================================================
-    printf("\n15. Mixed font sizes in paragraph via tags...\n");
-    drawSectionLabel(renderer, baseStyle, "[15] Mixed font sizes in paragraph (with border)", LEFT, y);
+    printf("\n16. Mixed font sizes in paragraph via tags...\n");
+    drawSectionLabel(renderer, baseStyle, "[16] Mixed font sizes in paragraph (with border)", LEFT, y);
     y += 18;
 
     {
@@ -578,10 +615,10 @@ int main(int argc, char* argv[]) {
     y += 210 + SECTION;
 
     //==========================================================================
-    // 16. CJK 3言語 + 絵文字混在パラグラフ
+    // 17. CJK 3言語 + 絵文字混在パラグラフ
     //==========================================================================
-    printf("\n16. CJK trilingual + emoji mixed paragraph...\n");
-    drawSectionLabel(renderer, baseStyle, "[16] CJK trilingual + emoji mixed (with border)", LEFT, y);
+    printf("\n17. CJK trilingual + emoji mixed paragraph...\n");
+    drawSectionLabel(renderer, baseStyle, "[17] CJK trilingual + emoji mixed (with border)", LEFT, y);
     y += 18;
 
     {
@@ -608,10 +645,10 @@ int main(int argc, char* argv[]) {
     y += 190 + SECTION;
 
     //==========================================================================
-    // 17. アラインメント比較（左・中央・右）
+    // 18. アラインメント比較（左・中央・右）
     //==========================================================================
-    printf("\n17. Alignment comparison...\n");
-    drawSectionLabel(renderer, baseStyle, "[17] Alignment: Left / Center / Right (with borders)", LEFT, y);
+    printf("\n18. Alignment comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[18] Alignment: Left / Center / Right (with borders)", LEFT, y);
     y += 18;
 
     {
@@ -653,9 +690,9 @@ int main(int argc, char* argv[]) {
     y += 90 + SECTION;
 
     //--------------------------------------------------------------------------
-    // 18. 描画同期・保存
+    // 19. 描画同期・保存
     //--------------------------------------------------------------------------
-    printf("\n18. Syncing and saving...\n");
+    printf("\n19. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP
