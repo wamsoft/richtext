@@ -1,7 +1,11 @@
 // richtext.hppをncbind.hppの前にインクルードして、
 // minikinヘッダとwindows.hのコンフリクトを回避
+#if !defined(WIN32_LEAN_AND_MEAN)
 #define WIN32_LEAN_AND_MEAN
+#endif
+#if !defined(NOMINMAX)
 #define NOMINMAX
+#endif
 #include "richtext.hpp"
 
 // ncbind.hppをrichtext.hppの後にインクルード
@@ -99,7 +103,7 @@ public:
     RichTextStyle() {}
     
     // フォントコレクション設定（フォント名の配列から）
-    void setFonts(const tTJSVariant& names) {
+    void setFonts(tTJSVariant names) {
         if (!IsArray(names)) {
             TVPThrowExceptionMessage(TJS_W("fonts must be an array"));
             return;
@@ -241,66 +245,21 @@ public:
     }
 };
 
-// ============================================================================
-// TJSラッパークラス: RichTextRect (矩形)
-// ============================================================================
-
-struct RichTextRect {
-    REAL X, Y, Width, Height;
-    
-    RichTextRect() : X(0), Y(0), Width(0), Height(0) {}
-    RichTextRect(REAL x, REAL y, REAL w, REAL h) : X(x), Y(y), Width(w), Height(h) {}
-    RichTextRect(const richtext::RectF& r) : X(r.x), Y(r.y), Width(r.width), Height(r.height) {}
-    
-    REAL GetLeft() const { return X; }
-    REAL GetTop() const { return Y; }
-    REAL GetRight() const { return X + Width; }
-    REAL GetBottom() const { return Y + Height; }
-    
-    // richtext::RectF への変換
-    richtext::RectF toRectF() const { return richtext::RectF(X, Y, Width, Height); }
-};
-
-// ============================================================================
-// 型コンバータ登録
-// ============================================================================
-
-// RichTextRect コンバータ（配列/辞書からの変換）
-template <class T>
-struct RichTextRectConvertor {
-    typedef ncbInstanceAdaptor<T> AdaptorT;
-    template <typename ANYT>
-    void operator ()(ANYT &adst, const tTJSVariant &src) {
-        if (src.Type() == tvtObject) {
-            T *obj = AdaptorT::GetNativeInstance(src.AsObjectNoAddRef());
-            if (obj) {
-                dst = *obj;
-            } else {
-                ncbPropAccessor info(src);
-                if (IsArray(src)) {
-                    dst = RichTextRect(
-                        (REAL)info.getRealValue(0),
-                        (REAL)info.getRealValue(1),
-                        (REAL)info.getRealValue(2),
-                        (REAL)info.getRealValue(3));
-                } else {
-                    dst = RichTextRect(
-                        (REAL)info.getRealValue(TJS_W("x")),
-                        (REAL)info.getRealValue(TJS_W("y")),
-                        (REAL)info.getRealValue(TJS_W("width")),
-                        (REAL)info.getRealValue(TJS_W("height")));
-                }
-            }
-        } else {
-            dst = T();
-        }
-        adst = ncbTypeConvertor::ToTarget<ANYT>::Get(&dst);
-    }
-private:
-    T dst;
-};
-
-NCB_SET_CONVERTOR_DST(RichTextRect, RichTextRectConvertor<RichTextRect>);
+// rect を [x,t,w,h] の配列にする
+tTJSVariant toVariant(const richtext::RectF& rect) {
+    tTJSVariant result;
+    tTJSVariant x(rect.x);
+    tTJSVariant y(rect.y);
+    tTJSVariant w(rect.width);
+    tTJSVariant h(rect.height);
+    tTJSVariant *points[4] = {&x, &y, &w, &h};
+    iTJSDispatch2* arr = TJSCreateArrayObject();
+    static tjs_uint32 pushHint;
+    arr->FuncCall(0, TJS_W("push"), &pushHint, 0, 4, points, arr);
+    result = tTJSVariant(arr, arr);
+    arr->Release();
+    return result;
+}
 
 // 列挙型コンバータ
 NCB_TYPECONV_CAST_INTEGER(ParagraphLayout::HAlign);
@@ -378,7 +337,7 @@ public:
      * @param appearance RichTextAppearance
      * @return 描画領域
      */
-    RichTextRect drawText(const tjs_char* text, REAL x, REAL y,
+    tTJSVariant drawText(const tjs_char* text, REAL x, REAL y,
                           RichTextStyle* style, RichTextAppearance* appearance)
     {
         if (!style || !appearance) {
@@ -392,20 +351,23 @@ public:
         redraw(static_cast<int>(rect.x), static_cast<int>(rect.y),
                static_cast<int>(rect.width) + 1, static_cast<int>(rect.height) + 1);
         
-        return RichTextRect(rect);
+        return toVariant(rect);
     }
     
     /**
      * パラグラフ描画
      * @param text テキスト
-     * @param rect 描画領域 [x, y, width, height] または RichTextRect
+     * @param x X座標
+     * @param y Y座標
+     * @param width 描画幅
+     * @param height 描画高さ
      * @param hAlign 水平アライン (0:Left, 1:Center, 2:Right)
      * @param vAlign 垂直アライン (0:Top, 1:Middle, 2:Bottom)
      * @param style RichTextStyle
      * @param appearance RichTextAppearance
      * @return 描画領域
      */
-    RichTextRect drawParagraph(const tjs_char* text, const RichTextRect& rect,
+    tTJSVariant drawParagraph(const tjs_char* text, REAL x, REAL y, REAL width, REAL height,
                                int hAlign, int vAlign,
                                RichTextStyle* style, RichTextAppearance* appearance)
     {
@@ -414,7 +376,7 @@ public:
         }
         
         std::u16string u16text = tjsToU16(text);
-        richtext::RectF r(rect.X, rect.Y, rect.Width, rect.Height);
+        richtext::RectF r(x, y, width, height);
         
         richtext::RectF result = renderer_.drawParagraph(
             u16text, r,
@@ -427,20 +389,23 @@ public:
         redraw(static_cast<int>(result.x), static_cast<int>(result.y),
                static_cast<int>(result.width) + 1, static_cast<int>(result.height) + 1);
         
-        return RichTextRect(result);
+        return toVariant(result);
     }
     
     /**
      * タグ付きテキスト描画
      * @param text タグ付きテキスト
-     * @param rect 描画領域
+     * @param x X座標
+     * @param y Y座標
+     * @param width 幅
+     * @param height 高さ
      * @param hAlign 水平アライン
      * @param vAlign 垂直アライン
      * @param defaultStyle デフォルトスタイル
      * @param defaultAppearance デフォルト外観
      * @return 描画領域
      */
-    RichTextRect drawTaggedText(const tjs_char* text, const RichTextRect& rect,
+    tTJSVariant drawTaggedText(const tjs_char* text, REAL x, REAL y, REAL width, REAL height,
                                 int hAlign, int vAlign,
                                 RichTextStyle* defaultStyle,
                                 RichTextAppearance* defaultAppearance)
@@ -450,7 +415,7 @@ public:
         }
         
         std::u16string u16text = tjsToU16(text);
-        richtext::RectF r(rect.X, rect.Y, rect.Width, rect.Height);
+        richtext::RectF r(x, y, width, height);
         
         // タグパーサーでパース
         TagParser parser;
@@ -469,7 +434,7 @@ public:
         redraw(static_cast<int>(result.x), static_cast<int>(result.y),
                static_cast<int>(result.width) + 1, static_cast<int>(result.height) + 1);
         
-        return RichTextRect(result);
+        return toVariant(result);
     }
     
     // ------------------------------------------------------------------
@@ -636,26 +601,6 @@ void deInitRichText()
 // ncbind 登録
 // ============================================================================
 
-// メンバ変数をプロパティとして登録
-#define NCB_MEMBER_PROPERTY(name, type, membername) \
-    struct AutoProp_ ## name { \
-        static void ProxySet(Class *inst, type value) { inst->membername = value; } \
-        static type ProxyGet(Class *inst) { return inst->membername; } }; \
-    NCB_PROPERTY_PROXY(name, AutoProp_ ## name::ProxyGet, AutoProp_ ## name::ProxySet)
-
-// RichTextRect サブクラス
-NCB_REGISTER_SUBCLASS_DELAY(RichTextRect) {
-    NCB_CONSTRUCTOR((REAL, REAL, REAL, REAL));
-    NCB_MEMBER_PROPERTY(x, REAL, X);
-    NCB_MEMBER_PROPERTY(y, REAL, Y);
-    NCB_MEMBER_PROPERTY(width, REAL, Width);
-    NCB_MEMBER_PROPERTY(height, REAL, Height);
-    NCB_PROPERTY_RO(left, GetLeft);
-    NCB_PROPERTY_RO(top, GetTop);
-    NCB_PROPERTY_RO(right, GetRight);
-    NCB_PROPERTY_RO(bottom, GetBottom);
-};
-
 // RichTextStyle サブクラス
 NCB_REGISTER_SUBCLASS(RichTextStyle) {
     NCB_CONSTRUCTOR(());
@@ -702,7 +647,6 @@ NCB_REGISTER_CLASS(RichText)
     Variant(TJS_W("VALIGN_BOTTOM"), (int)ParagraphLayout::VAlign::Bottom);
     
     // サブクラス
-    NCB_SUBCLASS(Rect, RichTextRect);
     NCB_SUBCLASS(Style, RichTextStyle);
     NCB_SUBCLASS(Appearance, RichTextAppearance);
 }
