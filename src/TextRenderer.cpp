@@ -306,9 +306,13 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
         }
 
         // 各セグメントの幅を計算して合計幅を求める（Center/Right アライン用）
+        // MeasuredText の文字幅を使い、行分割時の計算と整合させる
         struct SegmentLayout {
             size_t spanIdx;
+            size_t segStart;  // plainText 内の開始位置
+            size_t segEnd;    // plainText 内の終了位置
             float yOffset;
+            float measuredWidth;  // MeasuredText ベースの幅
             TextLayout layout;
         };
         std::vector<SegmentLayout> segLayouts;
@@ -320,9 +324,13 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
 
             SegmentLayout sl;
             sl.spanIdx = seg.spanIdx;
+            sl.segStart = seg.segStart;
+            sl.segEnd = seg.segEnd;
             sl.yOffset = span.yOffset;
             sl.layout.layout(std::move(segText), span.style);
-            totalWidth += sl.layout.getWidth();
+            // 行分割と整合する幅を ParagraphLayout から取得
+            sl.measuredWidth = para.getRunWidth(seg.segStart, seg.segEnd);
+            totalWidth += sl.measuredWidth;
             segLayouts.push_back(std::move(sl));
         }
 
@@ -350,7 +358,8 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
             float drawY = baseY + sl.yOffset;
 
             RectF segBounds = drawLayout(sl.layout, curX, drawY, span.appearance);
-            curX += sl.layout.getWidth();
+            // MeasuredText ベースの幅で位置を進める（行分割と整合）
+            curX += sl.measuredWidth;
 
             if (first) {
                 totalBounds = segBounds;

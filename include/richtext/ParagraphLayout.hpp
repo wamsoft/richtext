@@ -164,6 +164,16 @@ public:
      * @return TextLayout
      */
     TextLayout getLineLayout(size_t lineIndex, const TextStyle& style) const;
+
+    /**
+     * 指定範囲の文字アドバンス幅合計を取得
+     *
+     * MeasuredText の文字幅を使用するため、行分割時の計算結果と整合する。
+     * @param start 開始文字位置（UTF-16単位）
+     * @param end 終了文字位置（UTF-16単位）
+     * @return 幅の合計
+     */
+    float getRunWidth(size_t start, size_t end) const;
     
     /**
      * 行の描画位置を計算

@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 3300;
+    const int HEIGHT = 3500;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -400,10 +400,10 @@ int main(int argc, char* argv[]) {
     y += 60 + SECTION;
 
     //--------------------------------------------------------------------------
-    // 9. 縁取り・影タグ
+    // 9. 縁取り・影タグの組み合わせ網羅
     //--------------------------------------------------------------------------
-    printf("\n9. Outline / Shadow tags...\n");
-    drawSectionLabel(renderer, baseStyle, "[9] Outline / Shadow via tags", LEFT, y);
+    printf("\n9. Outline / Shadow tag combinations...\n");
+    drawSectionLabel(renderer, baseStyle, "[9] Outline / Shadow combinations (Normal, Outline, Shadow, Both)", LEFT, y);
     y += 18;
 
     {
@@ -412,17 +412,61 @@ int main(int argc, char* argv[]) {
         styles["default"]      = makeStyle(jaCollection, 30.0f);
         appearances["default"] = blackFill;
 
-        richtext::RectF fxRect(LEFT, y, PARA_W, 60.0f);
+        // 9a. 通常テキスト
+        richtext::RectF normalRect(LEFT, y, PARA_W, 50.0f);
         renderer.drawStyledText(
-            utf8ToUtf16("<outline color=0xFF000000 width=3><color value=0xFFFFDD00>縁取りテキスト</color></outline>"
-                        "　"
-                        "<shadow color=0x88000000 x=3 y=3>影テキスト</shadow>"),
-            fxRect,
+            utf8ToUtf16("通常テキスト（効果なし）"),
+            normalRect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
             styles, appearances);
+        y += 50;
+
+        // 9b. 縁取りのみ
+        richtext::RectF outlineRect(LEFT, y, PARA_W, 50.0f);
+        renderer.drawStyledText(
+            utf8ToUtf16("<outline color=0xFF000000 width=3><color value=0xFFFFDD00>縁取りのみ Outline Only</color></outline>"),
+            outlineRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+        y += 50;
+
+        // 9c. 影のみ
+        richtext::RectF shadowRect(LEFT, y, PARA_W, 50.0f);
+        renderer.drawStyledText(
+            utf8ToUtf16("<shadow color=0x88000000 x=3 y=3>影のみ Shadow Only</shadow>"),
+            shadowRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+        y += 50;
+
+        // 9d. 縁取り＋影（両方）
+        richtext::RectF bothRect(LEFT, y, PARA_W, 50.0f);
+        renderer.drawStyledText(
+            utf8ToUtf16("<outline color=0xFF000000 width=3><shadow color=0x88000000 x=3 y=3>"
+                        "<color value=0xFF44CCFF>縁取り＋影 Both</color></shadow></outline>"),
+            bothRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+        y += 50;
+
+        // 9e. 効果の切り替え（隣接）
+        richtext::RectF seqRect(LEFT, y, PARA_W, 50.0f);
+        renderer.drawStyledText(
+            utf8ToUtf16("<outline color=0xFF000000 width=3><color value=0xFFFFDD00>縁取り</color></outline>"
+                        "→通常→"
+                        "<shadow color=0x88000000 x=3 y=3>影付き</shadow>"
+                        "→通常"),
+            seqRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+        y += 50;
     }
-    y += 60 + SECTION;
+    y += SECTION;
 
     //--------------------------------------------------------------------------
     // 10. 双方向テキスト（Bidi）

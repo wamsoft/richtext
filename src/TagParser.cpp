@@ -25,14 +25,14 @@ struct TagParser::ParseState {
     std::u16string plainText;       // タグ除去後のプレーンテキスト
     std::vector<TextSpan> spans;    // スタイル区間
     std::vector<std::string> errors; // エラーメッセージ
-    
+
     // スタイルスタック（ネスト管理用）
     struct StyleContext {
         std::string tagName;
         TextStyle style;
         Appearance appearance;
         size_t startPos;            // プレーンテキスト内での開始位置
-        
+
         // 特殊効果
         bool hasRuby = false;
         std::u16string rubyText;
@@ -43,10 +43,14 @@ struct TagParser::ParseState {
         float yOffset = 0.0f;
     };
     std::stack<StyleContext> styleStack;
-    
+
     // 現在のスタイル
     TextStyle currentStyle;
     Appearance currentAppearance;
+
+    // デフォルトスタイル（スタックが空になった際の復元用）
+    TextStyle defaultStyle;
+    Appearance defaultAppearance;
 };
 
 //------------------------------------------------------------------------------
@@ -146,6 +150,8 @@ TagParser::ParseResult TagParser::parse(
     ParseState state;
     state.currentStyle = defaultStyle;
     state.currentAppearance = defaultAppearance;
+    state.defaultStyle = defaultStyle;
+    state.defaultAppearance = defaultAppearance;
     
     size_t pos = 0;
     size_t lastTextStart = 0;
@@ -272,25 +278,46 @@ TagParser::ParseResult TagParser::parse(
     }
     
     // ギャップ補填：タグで覆われていない領域にデフォルトスパンを挿入
+    // ネストされたタグによる重複スパンを除去し、内側（最も具体的な）スパンを優先する
     if (!state.plainText.empty()) {
-        // 既存スパンを start 順にソート
-        std::sort(state.spans.begin(), state.spans.end(),
-                  [](const TextSpan& a, const TextSpan& b) { return a.start < b.start; });
+        // stable_sort で start 順にソート
+        // ネストされたタグでは内側の閉じタグが先に処理されるため、
+        // 同一 start のスパンでは内側（先に push された）スパンが前に来る
+        std::stable_sort(state.spans.begin(), state.spans.end(),
+                         [](const TextSpan& a, const TextSpan& b) { return a.start < b.start; });
 
         std::vector<TextSpan> filled;
         size_t cursor = 0;
         for (const auto& sp : state.spans) {
-            if (sp.start > cursor) {
-                // cursor..sp.start の隙間をデフォルトスパンで埋める
-                TextSpan gap;
-                gap.start = cursor;
-                gap.end = sp.start;
-                gap.style = defaultStyle;
-                gap.appearance = defaultAppearance;
-                filled.push_back(gap);
+            // cursor 以前で終わるスパンは完全に既存スパンに覆われているのでスキップ
+            if (sp.end <= cursor) continue;
+
+            if (sp.start >= cursor) {
+                // 重複なし：そのまま使用
+                if (sp.start > cursor) {
+                    // cursor..sp.start の隙間をデフォルトスパンで埋める
+                    TextSpan gap;
+                    gap.start = cursor;
+                    gap.end = sp.start;
+                    gap.style = defaultStyle;
+                    gap.appearance = defaultAppearance;
+                    filled.push_back(gap);
+                }
+                filled.push_back(sp);
+                cursor = sp.end;
+            } else {
+                // 部分的に重複（外側タグの残り部分）
+                // 内側タグでカバーされなかった残り部分はデフォルトスタイルで埋める
+                if (sp.end > cursor) {
+                    TextSpan gap;
+                    gap.start = cursor;
+                    gap.end = sp.end;
+                    gap.style = defaultStyle;
+                    gap.appearance = defaultAppearance;
+                    filled.push_back(gap);
+                    cursor = sp.end;
+                }
             }
-            filled.push_back(sp);
-            if (sp.end > cursor) cursor = sp.end;
         }
         // 末尾の隙間
         if (cursor < state.plainText.size()) {
@@ -533,11 +560,15 @@ bool TagParser::parseCloseTag(const std::u16string& text, size_t& pos, ParseStat
     }
 
     state.styleStack.pop();
-    
+
     // 親のスタイルに戻す
     if (!state.styleStack.empty()) {
         state.currentStyle = state.styleStack.top().style;
         state.currentAppearance = state.styleStack.top().appearance;
+    } else {
+        // スタックが空 → デフォルトに復元
+        state.currentStyle = state.defaultStyle;
+        state.currentAppearance = state.defaultAppearance;
     }
     
     return true;
@@ -707,10 +738,8 @@ TextStyle TagParser::applySubTag(const TextStyle& current) {
 
 Appearance TagParser::applyColorTag(const Appearance& current,
                                     const std::map<std::string, std::string>& attrs) {
-    Appearance app;  // 新しい外観
-    
     uint32_t color = 0xFFFFFFFF;
-    
+
     auto it = attrs.find("value");
     if (it != attrs.end()) {
         color = parseColorValue(it->second);
@@ -725,13 +754,31 @@ Appearance TagParser::applyColorTag(const Appearance& current,
         if (it != attrs.end()) b = static_cast<uint8_t>(parseInt(it->second));
         it = attrs.find("a");
         if (it != attrs.end()) a = static_cast<uint8_t>(parseInt(it->second));
-        
+
         color = (static_cast<uint32_t>(a) << 24) |
                 (static_cast<uint32_t>(r) << 16) |
                 (static_cast<uint32_t>(g) << 8) |
                 static_cast<uint32_t>(b);
     }
-    
+
+    // 親の Appearance を引き継ぎ、既存の Fill を指定色に差し替える
+    // 描画順: ストローク → 影（オフセット付き Fill）→ 通常 Fill（最前面）
+    const auto& parentStyles = current.getStyles();
+    Appearance app;
+
+    // まずストロークを追加（最背面）
+    for (const auto& s : parentStyles) {
+        if (s.type == DrawStyle::Type::Stroke) {
+            app.addStroke(s);
+        }
+    }
+    // 次にオフセット付き Fill（影効果）を追加
+    for (const auto& s : parentStyles) {
+        if (s.type == DrawStyle::Type::Fill && (s.offsetX != 0.0f || s.offsetY != 0.0f)) {
+            app.addFill(s);
+        }
+    }
+    // 最後に通常の Fill を指定色で追加（最前面）
     app.addFill(color);
     return app;
 }

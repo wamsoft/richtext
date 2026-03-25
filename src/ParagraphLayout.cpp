@@ -164,6 +164,20 @@ TextLayout ParagraphLayout::getLineLayout(size_t lineIndex, const TextStyle& sty
     return layout;
 }
 
+float ParagraphLayout::getRunWidth(size_t start, size_t end) const {
+    if (!measuredText_ || start >= end) {
+        return 0.0f;
+    }
+    if (end > measuredText_->widths.size()) {
+        end = measuredText_->widths.size();
+    }
+    float width = 0.0f;
+    for (size_t i = start; i < end; ++i) {
+        width += measuredText_->widths[i];
+    }
+    return width;
+}
+
 ParagraphLayout::RenderPosition ParagraphLayout::getLinePosition(
     size_t lineIndex,
     float rectX, float rectY,
