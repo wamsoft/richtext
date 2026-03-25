@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 3050;
+    const int HEIGHT = 3300;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -527,10 +527,64 @@ int main(int argc, char* argv[]) {
     y += 210 + SECTION;
 
     //==========================================================================
-    // 14. アラビア語長文テキスト折り返しサンプル（RTL・絵文字付き）
+    // 14. CJK 字形比較サンプル（同一文字の日本語・繁体・簡体字形差）
     //==========================================================================
-    printf("\n14. Arabic long text with word wrap and emoji (RTL)...\n");
-    drawSectionLabel(renderer, baseStyle, "[14] Arabic long text + emoji RTL (with border)", LEFT, y);
+    printf("\n14. CJK glyph comparison (ja / zh-Hant / zh-Hans)...\n");
+    drawSectionLabel(renderer, baseStyle, "[14] CJK glyph comparison: same codepoints, different locale+font", LEFT, y);
+    y += 22;
+
+    {
+        // 字形が異なる代表的な漢字
+        // 直・骨・角・令・花・草・者・黄・海・冷・領・返・飲・画・国・学
+        const char* glyphChars = "直骨角令花草者黄海冷領返飲画国学";
+
+        auto zhHantCollection = fm.createCollection({"zh-hant", "sans"});
+
+        // 日本語
+        drawSectionLabel(renderer, baseStyle, "Japanese (NotoSansJP, ja_JP):", LEFT, y);
+        y += 16;
+        {
+            richtext::TextStyle jaGlyphStyle = makeStyle(jaCollection, 36.0f, 400, "ja_JP-u-lb-strict");
+            renderer.drawText(utf8ToUtf16(glyphChars), LEFT, y, jaGlyphStyle, blackFill);
+        }
+        y += 50;
+
+        // 繁体字（Traditional Chinese）
+        drawSectionLabel(renderer, baseStyle, "Traditional Chinese (NotoSansTC, zh_TW):", LEFT, y);
+        y += 16;
+        {
+            richtext::TextStyle tcGlyphStyle = makeStyle(zhHantCollection, 36.0f, 400, "zh_TW");
+            renderer.drawText(utf8ToUtf16(glyphChars), LEFT, y, tcGlyphStyle, blueFill);
+        }
+        y += 50;
+
+        // 簡体字（Simplified Chinese）
+        drawSectionLabel(renderer, baseStyle, "Simplified Chinese (NotoSansSC, zh_CN):", LEFT, y);
+        y += 16;
+        {
+            richtext::TextStyle scGlyphStyle = makeStyle(zhCollection, 36.0f, 400, "zh_CN");
+            renderer.drawText(utf8ToUtf16(glyphChars), LEFT, y, scGlyphStyle, redFill);
+        }
+        y += 50;
+
+        // 注釈
+        {
+            richtext::TextStyle noteStyle = makeStyle(jaCollection, 13.0f);
+            richtext::Appearance noteApp;
+            noteApp.addFill(0xFF999999);
+            renderer.drawText(
+                utf8ToUtf16("※ 同一の Unicode コードポイントでも、フォント・ロケール設定により字形が異なります"),
+                LEFT, y, noteStyle, noteApp);
+        }
+        y += 20;
+    }
+    y += SECTION;
+
+    //==========================================================================
+    // 15. アラビア語長文テキスト折り返しサンプル（RTL・絵文字付き）
+    //==========================================================================
+    printf("\n15. Arabic long text with word wrap and emoji (RTL)...\n");
+    drawSectionLabel(renderer, baseStyle, "[15] Arabic long text + emoji RTL (with border)", LEFT, y);
     y += 18;
 
     {
@@ -566,8 +620,8 @@ int main(int argc, char* argv[]) {
     //==========================================================================
     // 15. フォントサイズ変更レイアウトサンプル
     //==========================================================================
-    printf("\n15. Various font sizes layout...\n");
-    drawSectionLabel(renderer, baseStyle, "[15] Various font sizes (12, 18, 24, 36, 48, 64)", LEFT, y);
+    printf("\n16. Various font sizes layout...\n");
+    drawSectionLabel(renderer, baseStyle, "[16] Various font sizes (12, 18, 24, 36, 48, 64)", LEFT, y);
     y += 22;
 
     {
@@ -587,8 +641,8 @@ int main(int argc, char* argv[]) {
     //==========================================================================
     // 15. タグによるフォントサイズ混在パラグラフ
     //==========================================================================
-    printf("\n16. Mixed font sizes in paragraph via tags...\n");
-    drawSectionLabel(renderer, baseStyle, "[16] Mixed font sizes in paragraph (with border)", LEFT, y);
+    printf("\n17. Mixed font sizes in paragraph via tags...\n");
+    drawSectionLabel(renderer, baseStyle, "[17] Mixed font sizes in paragraph (with border)", LEFT, y);
     y += 18;
 
     {
@@ -615,10 +669,10 @@ int main(int argc, char* argv[]) {
     y += 210 + SECTION;
 
     //==========================================================================
-    // 17. CJK 3言語 + 絵文字混在パラグラフ
+    // 18. CJK 3言語 + 絵文字混在パラグラフ
     //==========================================================================
-    printf("\n17. CJK trilingual + emoji mixed paragraph...\n");
-    drawSectionLabel(renderer, baseStyle, "[17] CJK trilingual + emoji mixed (with border)", LEFT, y);
+    printf("\n18. CJK trilingual + emoji mixed paragraph...\n");
+    drawSectionLabel(renderer, baseStyle, "[18] CJK trilingual + emoji mixed (with border)", LEFT, y);
     y += 18;
 
     {
@@ -645,10 +699,10 @@ int main(int argc, char* argv[]) {
     y += 190 + SECTION;
 
     //==========================================================================
-    // 18. アラインメント比較（左・中央・右）
+    // 19. アラインメント比較（左・中央・右）
     //==========================================================================
-    printf("\n18. Alignment comparison...\n");
-    drawSectionLabel(renderer, baseStyle, "[18] Alignment: Left / Center / Right (with borders)", LEFT, y);
+    printf("\n19. Alignment comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[19] Alignment: Left / Center / Right (with borders)", LEFT, y);
     y += 18;
 
     {
@@ -690,9 +744,9 @@ int main(int argc, char* argv[]) {
     y += 90 + SECTION;
 
     //--------------------------------------------------------------------------
-    // 19. 描画同期・保存
+    // 20. 描画同期・保存
     //--------------------------------------------------------------------------
-    printf("\n19. Syncing and saving...\n");
+    printf("\n20. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP
