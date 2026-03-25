@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.31)
 
+add_compile_options("$<$<AND:$<C_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:C>>:/utf-8>")
+add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:CXX>>:/utf-8>")
+add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:CXX>>:/Zc:__cplusplus>")
+
 project(dummy)
 
 set(TPSTUB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../tp_stub CACHE PATH "Path to tp_stub directory")
@@ -64,8 +68,6 @@ target_include_directories(richtext_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/minikin/libs
 )
 target_link_libraries(richtext_lib PUBLIC thorvg minikin)
-target_compile_definitions(richtext_lib PUBLIC TVG_STATIC NOMINMAX)
-target_compile_options(richtext_lib PUBLIC /utf-8)
 
 #------------------------------------------------------------------------------
 # 吉里吉里プラグイン（TJS バインディング）
