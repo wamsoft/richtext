@@ -41,6 +41,7 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
     // カラー絵文字判定
     if (font->isColorGlyph(glyph.glyphId)) {
         // ビットマップ描画
+        // 絵文字の下端をベースラインに合わせる
         if (useCache_) {
             auto key = makeKey(font, glyph.glyphId, style.fontSize);
             auto it = bitmapCache_.find(key);
@@ -61,8 +62,9 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
                     float bitmapSize = static_cast<float>(std::max(bitmap.width, bitmap.height));
                     scale = style.fontSize / bitmapSize;
                 }
+                float emojiH = bitmap.height * scale;
                 renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
-                             glyphY - bitmap.bearingY * scale, scale);
+                             glyphY - emojiH, scale);
             }
         } else {
             GlyphBitmap bitmap;
@@ -72,8 +74,9 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
                     float bitmapSize = static_cast<float>(std::max(bitmap.width, bitmap.height));
                     scale = style.fontSize / bitmapSize;
                 }
+                float emojiH = bitmap.height * scale;
                 renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
-                             glyphY - bitmap.bearingY * scale, scale);
+                             glyphY - emojiH, scale);
             }
         }
     } else {

@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 4430;
+    const int HEIGHT = 4580;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -743,10 +743,38 @@ int main(int argc, char* argv[]) {
     y += 190 + SECTION;
 
     //==========================================================================
-    // 19. ルビ（振り仮名）サンプル
+    // 19. 欧文 + 絵文字混在サンプル
     //==========================================================================
-    printf("\n19. Ruby (furigana) text...\n");
-    drawSectionLabel(renderer, baseStyle, "[19] Ruby (furigana) text (with border)", LEFT, y);
+    printf("\n19. English text with emoji...\n");
+    drawSectionLabel(renderer, baseStyle, "[19] English text with emoji (with border)", LEFT, y);
+    y += 18;
+
+    {
+        auto enCollection = fm.createCollection({"sans", "emoji"});
+        std::map<std::string, richtext::TextStyle>    styles;
+        std::map<std::string, richtext::Appearance>   appearances;
+        styles["default"]      = makeStyle(enCollection, 22.0f, 400, "en_US");
+        appearances["default"] = blackFill;
+
+        richtext::RectF enRect(LEFT, y, PARA_W, 100.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, enRect, BORDER_BLUE, 2);
+        renderer.drawStyledText(
+            utf8ToUtf16(
+                "Hello World! \U0001F44B Welcome to the RichText library. \U0001F680\U0001F31F "
+                "Emoji are rendered inline: \U0001F60A\U0001F389\U0001F3B5 "
+                "and support flags \U0001F1FA\U0001F1F8\U0001F1EC\U0001F1E7\U0001F1EF\U0001F1F5 too!"),
+            enRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+    }
+    y += 110 + SECTION;
+
+    //==========================================================================
+    // 20. ルビ（振り仮名）サンプル
+    //==========================================================================
+    printf("\n20. Ruby (furigana) text...\n");
+    drawSectionLabel(renderer, baseStyle, "[20] Ruby (furigana) text (with border)", LEFT, y);
     y += 18;
 
     {
@@ -789,8 +817,8 @@ int main(int argc, char* argv[]) {
     //==========================================================================
     // 20. アラインメント比較（左・中央・右）
     //==========================================================================
-    printf("\n20. Alignment comparison...\n");
-    drawSectionLabel(renderer, baseStyle, "[20] Alignment: Left / Center / Right (with borders)", LEFT, y);
+    printf("\n21. Alignment comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[21] Alignment: Left / Center / Right (with borders)", LEFT, y);
     y += 18;
 
     {
@@ -834,8 +862,8 @@ int main(int argc, char* argv[]) {
     //==========================================================================
     // 21. 垂直アラインメント比較（上・中央・下）
     //==========================================================================
-    printf("\n21. Vertical alignment comparison...\n");
-    drawSectionLabel(renderer, baseStyle, "[21] VAlign: Top / Middle / Bottom (Center, with borders)", LEFT, y);
+    printf("\n22. Vertical alignment comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[22] VAlign: Top / Middle / Bottom (Center, with borders)", LEFT, y);
     y += 18;
 
     {
@@ -874,7 +902,7 @@ int main(int argc, char* argv[]) {
     //--------------------------------------------------------------------------
     // 20. 描画同期・保存
     //--------------------------------------------------------------------------
-    printf("\n22. Syncing and saving...\n");
+    printf("\n23. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP
