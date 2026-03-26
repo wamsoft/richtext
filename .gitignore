@@ -4,7 +4,7 @@ build
 .venv
 krkrZ.exe
 savedata
-output.bmp
-output.png
+output*.bmp
+output*.png
 data/*.ttf
 data/*.otf
