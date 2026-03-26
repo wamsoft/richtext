@@ -123,6 +123,32 @@ int parseInt(const std::string& value) {
     }
 }
 
+// Appearance 内の描画順序を正規化する
+// 描画順: 影 Fill（最背面）→ Stroke → 通常 Fill（最前面）
+Appearance rebuildDrawOrder(const Appearance& src) {
+    const auto& styles = src.getStyles();
+    Appearance app;
+    // 1. 影（オフセット付き Fill）
+    for (const auto& s : styles) {
+        if (s.type == DrawStyle::Type::Fill && (s.offsetX != 0.0f || s.offsetY != 0.0f)) {
+            app.addFill(s);
+        }
+    }
+    // 2. Stroke
+    for (const auto& s : styles) {
+        if (s.type == DrawStyle::Type::Stroke) {
+            app.addStroke(s);
+        }
+    }
+    // 3. 通常 Fill（オフセットなし）
+    for (const auto& s : styles) {
+        if (s.type == DrawStyle::Type::Fill && s.offsetX == 0.0f && s.offsetY == 0.0f) {
+            app.addFill(s);
+        }
+    }
+    return app;
+}
+
 } // anonymous namespace
 
 //------------------------------------------------------------------------------
@@ -762,23 +788,23 @@ Appearance TagParser::applyColorTag(const Appearance& current,
     }
 
     // 親の Appearance を引き継ぎ、既存の Fill を指定色に差し替える
-    // 描画順: ストローク → 影（オフセット付き Fill）→ 通常 Fill（最前面）
+    // 描画順: 影 Fill（最背面）→ Stroke → 通常 Fill（最前面）
     const auto& parentStyles = current.getStyles();
     Appearance app;
 
-    // まずストロークを追加（最背面）
-    for (const auto& s : parentStyles) {
-        if (s.type == DrawStyle::Type::Stroke) {
-            app.addStroke(s);
-        }
-    }
-    // 次にオフセット付き Fill（影効果）を追加
+    // 1. 影（オフセット付き Fill）を最背面に
     for (const auto& s : parentStyles) {
         if (s.type == DrawStyle::Type::Fill && (s.offsetX != 0.0f || s.offsetY != 0.0f)) {
             app.addFill(s);
         }
     }
-    // 最後に通常の Fill を指定色で追加（最前面）
+    // 2. ストロークを中間に
+    for (const auto& s : parentStyles) {
+        if (s.type == DrawStyle::Type::Stroke) {
+            app.addStroke(s);
+        }
+    }
+    // 3. 通常の Fill を最前面に
     app.addFill(color);
     return app;
 }
@@ -816,10 +842,10 @@ Appearance TagParser::applyOutlineTag(const Appearance& current,
     stroke.offsetY = oy;
     stroke.strokeJoin = tvg::StrokeJoin::Round;
     
-    // 既存のスタイルを保持しつつストロークを追加
+    // 既存のスタイルを保持しつつストロークを追加し、描画順を正規化
     app.addStroke(stroke);
-    
-    return app;
+
+    return rebuildDrawOrder(app);
 }
 
 Appearance TagParser::applyShadowTag(const Appearance& current,
@@ -840,10 +866,10 @@ Appearance TagParser::applyShadowTag(const Appearance& current,
     it = attrs.find("y");
     if (it != attrs.end()) oy = parseFloat(it->second);
     
-    // 影を塗りとして追加（先に描画されるよう）
+    // 影を塗りとして追加し、描画順を正規化
     app.addFill(color, ox, oy);
-    
-    return app;
+
+    return rebuildDrawOrder(app);
 }
 
 //------------------------------------------------------------------------------
