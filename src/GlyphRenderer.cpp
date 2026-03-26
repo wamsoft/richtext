@@ -77,6 +77,13 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
             }
         }
     } else {
+        // フェイクイタリック: シアー係数（Android と同じ -0.25 ≒ 14度）
+        float skewX = 0.0f;
+        minikin::FontFakery fakery = glyph.fakery;
+        if (fakery.isFakeItalic()) {
+            skewX = -0.25f;
+        }
+
         // ベクターパス描画
         if (useCache_) {
             auto key = makeKey(font, glyph.glyphId, style.fontSize);
@@ -93,13 +100,13 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
                 }
             }
             if (it != pathCache_.end()) {
-                renderPath(it->second.commands, it->second.points, glyphX, glyphY, appearance);
+                renderPath(it->second.commands, it->second.points, glyphX, glyphY, appearance, skewX);
             }
         } else {
             std::vector<tvg::PathCommand> commands;
             std::vector<tvg::Point> points;
             if (font->getGlyphPath(glyph.glyphId, style.fontSize, commands, points)) {
-                renderPath(commands, points, glyphX, glyphY, appearance);
+                renderPath(commands, points, glyphX, glyphY, appearance, skewX);
             }
         }
     }
@@ -149,19 +156,25 @@ void GlyphRenderer::evictCacheIfNeeded() {
 void GlyphRenderer::renderPath(const std::vector<tvg::PathCommand>& commands,
                                const std::vector<tvg::Point>& points,
                                float x, float y,
-                               const Appearance& appearance) {
+                               const Appearance& appearance,
+                               float skewX) {
     if (commands.empty() || !canvas_) {
         return;
     }
-    
+
     // 各 DrawStyle に対して描画
     for (const auto& drawStyle : appearance.getStyles()) {
         tvg::Shape* shape = tvg::Shape::gen();
         if (!shape) continue;
-        
-        // パスを設定（コピーして座標をオフセット）
+
+        // パスを設定（コピーして座標をオフセット + シアー変換）
         std::vector<tvg::Point> offsetPoints = points;
         for (auto& pt : offsetPoints) {
+            // フェイクイタリック: X方向にシアー変換（ベースライン基準）
+            // pt.y はベースライン(0)からの相対座標で、上方向が負
+            if (skewX != 0.0f) {
+                pt.x += skewX * pt.y;
+            }
             pt.x += x + drawStyle.offsetX;
             pt.y += y + drawStyle.offsetY;
         }

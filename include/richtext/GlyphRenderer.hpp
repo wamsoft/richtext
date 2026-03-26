@@ -132,7 +132,8 @@ private:
     void renderPath(const std::vector<tvg::PathCommand>& commands,
                     const std::vector<tvg::Point>& points,
                     float x, float y,
-                    const Appearance& appearance);
+                    const Appearance& appearance,
+                    float skewX = 0.0f);
 
     /**
      * ビットマップ描画（カラー絵文字）
