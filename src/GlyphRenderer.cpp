@@ -57,26 +57,16 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
             }
             if (it != bitmapCache_.end()) {
                 const GlyphBitmap& bitmap = it->second;
-                float scale = 1.0f;
-                if (bitmap.height > 0) {
-                    float bitmapSize = static_cast<float>(std::max(bitmap.width, bitmap.height));
-                    scale = style.fontSize / bitmapSize;
-                }
-                float emojiH = bitmap.height * scale;
+                float scale = (bitmap.strikeHeight > 0) ? (style.fontSize / bitmap.strikeHeight) : 1.0f;
                 renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
-                             glyphY - emojiH, scale);
+                             glyphY - bitmap.bearingY * scale, scale);
             }
         } else {
             GlyphBitmap bitmap;
             if (font->getGlyphBitmap(glyph.glyphId, style.fontSize, bitmap)) {
-                float scale = 1.0f;
-                if (bitmap.height > 0) {
-                    float bitmapSize = static_cast<float>(std::max(bitmap.width, bitmap.height));
-                    scale = style.fontSize / bitmapSize;
-                }
-                float emojiH = bitmap.height * scale;
+                float scale = (bitmap.strikeHeight > 0) ? (style.fontSize / bitmap.strikeHeight) : 1.0f;
                 renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
-                             glyphY - emojiH, scale);
+                             glyphY - bitmap.bearingY * scale, scale);
             }
         }
     } else {

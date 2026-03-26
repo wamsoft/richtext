@@ -28,6 +28,7 @@ struct GlyphBitmap {
     int height = 0;
     int bearingX = 0;           // 原点からの水平オフセット
     int bearingY = 0;           // 原点からの垂直オフセット（上向き正）
+    float strikeHeight = 0;     // 固定サイズビットマップの基準高さ（スケール計算用）
 };
 
 /**
@@ -160,6 +161,12 @@ private:
                               float scale,
                               std::vector<tvg::PathCommand>& commands,
                               std::vector<tvg::Point>& points);
+
+    /**
+     * COLRv1 ペイントグラフを走査して RGBA ビットマップを生成
+     */
+    bool renderCOLRv1Glyph(uint32_t glyphId, float size,
+                           GlyphBitmap& bitmap) const;
 };
 
 } // namespace richtext

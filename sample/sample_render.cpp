@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 4730;
+    const int HEIGHT = 4980;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -221,6 +221,7 @@ int main(int argc, char* argv[]) {
         {"NotoNaskhArabic-Regular.ttf", "ar-naskh"},
         {"NotoColorEmoji.ttf",          "emoji"},
         {"NotoEmoji-Regular.ttf",       "emoji-mono"},
+        {"Noto-COLRv1.ttf",             "emoji-colr"},
     };
 
     for (const auto& f : fonts) {
@@ -948,10 +949,64 @@ int main(int argc, char* argv[]) {
     }
     y += 130 + SECTION;
 
+    //==========================================================================
+    // 24. カラー絵文字 vs モノクロ絵文字比較
+    //==========================================================================
+    printf("\n24. Color emoji vs Monochrome emoji comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[24] Color emoji vs Monochrome emoji", LEFT, y);
+    y += 18;
+
+    {
+        auto colorCollection = fm.createCollection({"sans", "ja", "emoji"});
+        auto monoCollection  = fm.createCollection({"sans", "ja", "emoji-mono"});
+
+        auto emojiText = utf8ToUtf16(
+            u8"絵文字テスト: \U0001F600\U0001F60A\U0001F389\U0001F680\U0001F31F"
+            u8"\U0001F3B5\U0001F44B\U0001F4A1\U0001F525\U00002764\U0000FE0F");
+
+        // カラー絵文字
+        drawSectionLabel(renderer, baseStyle, "  Color (NotoColorEmoji)", LEFT, y);
+        y += 16;
+        richtext::RectF colorRect(LEFT, y, PARA_W, 50.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, colorRect, BORDER_BLUE, 2);
+        auto colorStyle = makeStyle(colorCollection, 28.0f);
+        renderer.drawParagraph(emojiText, colorRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            colorStyle, blackFill);
+        y += 60;
+
+        // COLRv1 絵文字
+        auto colrCollection = fm.createCollection({"sans", "ja", "emoji-colr"});
+        drawSectionLabel(renderer, baseStyle, "  COLRv1 (Noto-COLRv1)", LEFT, y);
+        y += 16;
+        richtext::RectF colrRect(LEFT, y, PARA_W, 50.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, colrRect, BORDER_RED, 2);
+        auto colrStyle = makeStyle(colrCollection, 28.0f);
+        renderer.drawParagraph(emojiText, colrRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            colrStyle, blackFill);
+        y += 60;
+
+        // モノクロ絵文字
+        drawSectionLabel(renderer, baseStyle, "  Monochrome (NotoEmoji)", LEFT, y);
+        y += 16;
+        richtext::RectF monoRect(LEFT, y, PARA_W, 50.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, monoRect, BORDER_GREEN, 2);
+        auto monoStyle = makeStyle(monoCollection, 28.0f);
+        renderer.drawParagraph(emojiText, monoRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            monoStyle, blackFill);
+        y += 60;
+    }
+    y += SECTION;
+
     //--------------------------------------------------------------------------
-    // 20. 描画同期・保存
+    // 25. 描画同期・保存
     //--------------------------------------------------------------------------
-    printf("\n23. Syncing and saving...\n");
+    printf("\n25. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP

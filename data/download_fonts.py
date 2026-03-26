@@ -60,10 +60,16 @@ FONTS = [
         "https://github.com/notofonts/arabic/releases/download/NotoNaskhArabic-v2.021/NotoNaskhArabic-v2.021.zip",
         "NotoNaskhArabic/unhinted/ttf/NotoNaskhArabic-Regular.ttf",
     ),
-    # カラー絵文字（直接ダウンロード）
+    # カラー絵文字 CBDT（直接ダウンロード）
     (
         "NotoColorEmoji.ttf",
         "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/fonts/NotoColorEmoji.ttf",
+        None,
+    ),
+    # カラー絵文字 COLRv1（ベクターベース、直接ダウンロード）
+    (
+        "Noto-COLRv1.ttf",
+        "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/fonts/Noto-COLRv1.ttf",
         None,
     ),
     # モノクロ絵文字（variable font、直接ダウンロード）
