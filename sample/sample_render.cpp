@@ -374,7 +374,7 @@ int main(int argc, char* argv[]) {
             richtext::ParagraphLayout::VAlign::Top,
             styles, appearances);
     }
-    y += 50 + SECTION;
+    y += 100 + SECTION;
 
     //--------------------------------------------------------------------------
     // 8. 上付き・下付き（sup / sub）
