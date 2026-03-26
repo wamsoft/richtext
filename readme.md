@@ -1,14 +1,18 @@
-richtext 以下に、吉里吉里用の richtext をレンダリングできるライブラリを整備したい
+# richtext
 
-使いたい外部ライブラリ
-ext/minikin         パラグラフレンダリング処理を実現するライブラリ
-ext/thorvg          パスのベクター描画用のライブラリ
+多言語・装飾対応のリッチテキストレンダリングライブラリ。
 
-ワークスペース
-tp_stub             吉里吉里プラグイン用のスタブコード
-ncbind              吉里吉里プラグイン用の C++ バインダー
-text-renser-test   minikin の利用サンプル。docs 以下に minikin の使い方資料
-layerExVector      吉里吉里のプラグイン構築例。作成したクラスを main.cpp で ncbind を使って登録
+## 使用外部ライブラリ
 
+- `ext/minikin` — パラグラフレンダリング処理を実現するライブラリ
+- `ext/thorvg` — パスのベクター描画用のライブラリ
+- FreeType / zlib / libpng — vcpkg でインストール
 
+## ビルド成果物
 
+- `richtext_lib` — 静的ライブラリ（コア機能）
+- `sample_render.exe` — 動作確認サンプル
+
+## 関連プロジェクト
+
+- `../krkr_richtext` — 吉里吉里プラグイン（TJS バインディング）

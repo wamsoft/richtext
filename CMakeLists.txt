@@ -1,13 +1,11 @@
 cmake_minimum_required(VERSION 3.31)
 
-add_compile_options("$<$<AND:$<C_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:C>>:/utf-8>")
-add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:CXX>>:/utf-8>")
-add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:CXX>>:/Zc:__cplusplus>")
-
-project(dummy)
-
-set(TPSTUB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../tp_stub CACHE PATH "Path to tp_stub directory")
-include(${TPSTUB_DIR}/krkrz.cmake)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    add_compile_options("$<$<AND:$<C_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:C>>:/utf-8>")
+    add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:CXX>>:/utf-8>")
+    add_compile_options("$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:CXX>>:/Zc:__cplusplus>")
+    project(richtext)
+endif()
 
 # ThorVG configuration - static library, SW engine only
 set(TVG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
@@ -39,9 +37,13 @@ set(TVG_TOOL_LOTTIE2GIF OFF CACHE BOOL "" FORCE)
 set(TVG_BINDINGS_CAPI OFF CACHE BOOL "" FORCE)
 set(TVG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
-add_subdirectory(ext/thorvg)
+if(NOT TARGET thorvg)
+    add_subdirectory(ext/thorvg)
+endif()
 
-add_subdirectory(ext/minikin)
+if(NOT TARGET minikin)
+    add_subdirectory(ext/minikin)
+endif()
 
 #------------------------------------------------------------------------------
 # richtext 共通ライブラリ（プラグインとサンプルで共有）
@@ -71,32 +73,20 @@ target_include_directories(richtext_lib PUBLIC
 target_link_libraries(richtext_lib PUBLIC thorvg minikin)
 
 #------------------------------------------------------------------------------
-# 吉里吉里プラグイン（TJS バインディング）
+# サンプル実行ファイル（トップレベルプロジェクトの場合のみビルド）
 #------------------------------------------------------------------------------
 
-krkrz_plugin(richtext
-    NCBIND
-    INCLUDES
-        include
-    SOURCES
-        src/main.cpp
-    LIBRARIES
-        richtext_lib
-)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    add_executable(sample_render sample/sample_render.cpp)
+    target_link_libraries(sample_render PRIVATE richtext_lib)
+    target_compile_options(sample_render PRIVATE /utf-8)
 
-#------------------------------------------------------------------------------
-# サンプル実行ファイル
-#------------------------------------------------------------------------------
+    add_executable(debug_bidi sample/debug_bidi.cpp)
+    target_link_libraries(debug_bidi PRIVATE richtext_lib)
+    target_compile_options(debug_bidi PRIVATE /utf-8)
 
-add_executable(sample_render sample/sample_render.cpp)
-target_link_libraries(sample_render PRIVATE richtext_lib)
-target_compile_options(sample_render PRIVATE /utf-8)
-
-add_executable(debug_bidi sample/debug_bidi.cpp)
-target_link_libraries(debug_bidi PRIVATE richtext_lib)
-target_compile_options(debug_bidi PRIVATE /utf-8)
-
-add_executable(sample_sequential sample/sample_sequential.cpp)
-target_link_libraries(sample_sequential PRIVATE richtext_lib)
-target_compile_options(sample_sequential PRIVATE /utf-8)
+    add_executable(sample_sequential sample/sample_sequential.cpp)
+    target_link_libraries(sample_sequential PRIVATE richtext_lib)
+    target_compile_options(sample_sequential PRIVATE /utf-8)
+endif()
 

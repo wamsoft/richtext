@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 概要
+
+多言語・装飾対応のリッチテキストレンダリングライブラリ。minikin によるテキストレイアウト、FreeType によるグリフパス化、thorvg によるベクター描画を組み合わせる。
+
+吉里吉里プラグインとしてのバインディングは `../krkr_richtext` に分離されている。
+
 ## ビルド
 
 事前準備として `VCPKG_ROOT` 環境変数を設定する必要がある。
@@ -22,14 +28,11 @@ cd build/x64-windows/Release
 
 プリセット: `x86-windows`, `x64-windows`, `x64-linux`, `arm64-linux`, `x64-osx`, `arm64-osx`, `arm64-android`, `x64-android`
 
-Windows向け吉里吉里プラグイン開発では通常 `x64-windows` または `x86-windows` を使う。
-
 ## アーキテクチャ
 
 ### レイヤー構造（下から上へ）
 
 ```
-TJS バインディング層  src/main.cpp          ncbind で TJS2 クラス公開
 タグ解析層           src/TagParser.cpp      HTMLライクなタグ→スタイル区間変換
 描画層               src/TextRenderer.cpp   描画統合インタフェース
                      src/GlyphRenderer.cpp  グリフ単位描画・キャッシング
@@ -57,23 +60,11 @@ TJS バインディング層  src/main.cpp          ncbind で TJS2 クラス公
 
 ### ビルド成果物
 
-- `richtext.dll` — 吉里吉里プラグイン（`src/main.cpp` + `richtext_lib`）
 - `richtext_lib` — 静的ライブラリ（コア機能）
 - `sample_render.exe` — 動作確認サンプル
-
-### TJS バインディング（main.cpp）
-
-`richtext.hpp` を `ncbind.hpp` より先にインクルードすることで minikin ヘッダと `windows.h` のコンフリクトを回避している（ファイル先頭のコメント参照）。
-
-TJS2 の文字列は UTF-16 (`tjs_char*`) なので `tjsToU16()` / `u16ToTjs()` で変換する。
-
-### 実装状況
-
-- フェーズ 1〜5（コア機能）: 完了
-- フェーズ 6（`src/main.cpp` TJS バインディング）: 進行中
+- `sample_sequential.exe` — 逐次表示サンプル
 
 ### 参考ドキュメント
 
 - `設計.md` — クラス設計・詳細仕様
-- `api-reference.md` — TJS2 向け API リファレンス
 - `実装.md` — フェーズ別実装進捗
