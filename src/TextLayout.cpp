@@ -94,38 +94,33 @@ void TextLayout::cacheMetrics(const minikin::MinikinPaint& paint) {
 
 void TextLayout::buildGlyphInfos() {
     glyphs_.clear();
-    
+
     size_t glyphCount = layout_.nGlyphs();
     glyphs_.reserve(glyphCount);
-    
+
     for (size_t i = 0; i < glyphCount; ++i) {
         GlyphInfo info;
-        
-        // グリフID
+
         info.glyphId = layout_.getGlyphId(static_cast<int>(i));
-        
-        // フォント（MinikinFont* → FontFace*）
+
         const minikin::MinikinFont* minikinFont = layout_.getFont(static_cast<int>(i));
         info.font = static_cast<const FontFace*>(minikinFont);
-        
-        // 座標
+
         info.x = layout_.getX(static_cast<int>(i));
         info.y = layout_.getY(static_cast<int>(i));
-        
-        // 擬似スタイル
+
         info.fakery = layout_.getFakery(static_cast<int>(i));
-        
-        // 文字インデックス（グリフ番号をそのまま使用）
-        // Note: minikin::Layout には getCharIndex がないため
-        info.charIndex = i;
-        
-        // アドバンス（次のグリフとの差分から計算）
+
+        // 論理文字位置（minikin パッチで LayoutGlyph::cluster に記録）
+        info.charIndex = layout_.getCluster(static_cast<int>(i));
+
+        // アドバンス
         if (i + 1 < glyphCount) {
             info.advance = layout_.getX(static_cast<int>(i) + 1) - layout_.getX(static_cast<int>(i));
         } else {
             info.advance = layout_.getAdvance() - layout_.getX(static_cast<int>(i));
         }
-        
+
         glyphs_.push_back(info);
     }
 }

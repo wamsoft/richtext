@@ -136,8 +136,28 @@ public:
      */
     RectF drawLayout(const TextLayout& layout,
                      float x, float y,
-                     const Appearance& appearance);
+                     const Appearance& appearance,
+                     int maxGlyphs = -1);
     
+    /**
+     * パラグラフレイアウト済みの描画（単一スタイル）
+     * @param para ParagraphLayout（事前計算済み）
+     * @param rect 描画領域
+     * @param hAlign 水平アライン
+     * @param vAlign 垂直アライン
+     * @param style テキストスタイル
+     * @param appearance 描画外観
+     * @param maxGlyphs 描画するグリフ数上限（-1 = 全て）
+     * @return 実際に描画した領域
+     */
+    RectF drawParagraphLayout(const ParagraphLayout& para,
+                               const RectF& rect,
+                               ParagraphLayout::HAlign hAlign,
+                               ParagraphLayout::VAlign vAlign,
+                               const TextStyle& style,
+                               const Appearance& appearance,
+                               int maxGlyphs = -1);
+
     /**
      * パラグラフの描画（単一スタイル）
      * @param text UTF-16テキスト
@@ -191,6 +211,20 @@ public:
                          const std::map<std::string, Appearance>& appearances,
                          float lineSpacing = 0.0f);
     
+    /**
+     * 矩形描画
+     * @param x X座標
+     * @param y Y座標
+     * @param width 幅
+     * @param height 高さ
+     * @param fillColor 塗り色（ARGB）
+     * @param strokeColor ストローク色（ARGB、0で無効）
+     * @param strokeWidth ストローク幅
+     */
+    void drawRect(float x, float y, float width, float height,
+                  uint32_t fillColor, uint32_t strokeColor = 0,
+                  float strokeWidth = 0);
+
     // ------------------------------------------------------------------
     // 計測メソッド（描画はしない）
     // ------------------------------------------------------------------

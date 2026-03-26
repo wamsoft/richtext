@@ -245,6 +245,99 @@ public:
     }
 };
 
+// ============================================================================
+// TJSラッパークラス: RichTextLayout (TextLayout のラッパー)
+// ============================================================================
+
+class RichTextLayout {
+public:
+    TextLayout layout;
+
+    RichTextLayout() {}
+
+    void measure(const tjs_char* text, RichTextStyle* style) {
+        if (!style) TVPThrowExceptionMessage(TJS_W("style is required"));
+        layout.layout(tjsToU16(text), style->style);
+    }
+
+    REAL getWidth() const { return layout.getWidth(); }
+    REAL getHeight() const { return layout.getHeight(); }
+    REAL getAscent() const { return layout.getAscent(); }
+    REAL getDescent() const { return layout.getDescent(); }
+    int getGlyphCount() const { return static_cast<int>(layout.getGlyphCount()); }
+
+    RichTextLayout* clone() const {
+        RichTextLayout* c = new RichTextLayout();
+        c->layout = layout;
+        return c;
+    }
+};
+
+// ============================================================================
+// TJSラッパークラス: RichTextParagraphLayout (ParagraphLayout のラッパー)
+// ============================================================================
+
+class RichTextParagraphLayout {
+public:
+    ParagraphLayout layout;
+
+    RichTextParagraphLayout() {}
+
+    void measure(const tjs_char* text, REAL maxWidth, RichTextStyle* style) {
+        if (!style) TVPThrowExceptionMessage(TJS_W("style is required"));
+        cachedText_ = tjsToU16(text);
+        cachedMaxWidth_ = maxWidth;
+        cachedStyle_ = &style->style;
+        layout.layout(cachedText_, maxWidth, style->style);
+    }
+
+    int getLineCount() const { return static_cast<int>(layout.getLineCount()); }
+    REAL getTotalHeight() const { return layout.getTotalHeight(); }
+    REAL getMaxWidth() const { return layout.getMaxWidth(); }
+    int getTotalGlyphCount() const { return static_cast<int>(layout.getTotalGlyphCount()); }
+
+    void setLineSpacing(REAL v) { layout.setLineSpacing(v); }
+    REAL getLineSpacing() const { return layout.getLineSpacing(); }
+
+    tTJSVariant getLineInfo(int index) const {
+        if (index < 0 || index >= static_cast<int>(layout.getLineCount())) {
+            TVPThrowExceptionMessage(TJS_W("line index out of range"));
+        }
+        const auto& line = layout.getLine(index);
+        iTJSDispatch2* dict = TJSCreateDictionaryObject();
+        tTJSVariant val;
+        val = static_cast<int>(line.startIndex);
+        dict->PropSet(TJS_MEMBERENSURE, TJS_W("startIndex"), nullptr, &val, dict);
+        val = static_cast<int>(line.endIndex);
+        dict->PropSet(TJS_MEMBERENSURE, TJS_W("endIndex"), nullptr, &val, dict);
+        val = line.width;
+        dict->PropSet(TJS_MEMBERENSURE, TJS_W("width"), nullptr, &val, dict);
+        val = line.height();
+        dict->PropSet(TJS_MEMBERENSURE, TJS_W("height"), nullptr, &val, dict);
+        tTJSVariant result(dict, dict);
+        dict->Release();
+        return result;
+    }
+
+    RichTextParagraphLayout* clone() const {
+        RichTextParagraphLayout* c = new RichTextParagraphLayout();
+        if (cachedStyle_) {
+            c->cachedText_ = cachedText_;
+            c->cachedMaxWidth_ = cachedMaxWidth_;
+            c->cachedStyle_ = cachedStyle_;
+            c->layout.setLineSpacing(layout.getLineSpacing());
+            c->layout.setBreakStrategy(layout.getBreakStrategy());
+            c->layout.layout(cachedText_, cachedMaxWidth_, *cachedStyle_);
+        }
+        return c;
+    }
+
+private:
+    std::u16string cachedText_;
+    float cachedMaxWidth_ = 0;
+    const TextStyle* cachedStyle_ = nullptr;
+};
+
 // rect を [x,t,w,h] の配列にする
 tTJSVariant toVariant(const richtext::RectF& rect) {
     tTJSVariant result;
@@ -327,185 +420,160 @@ public:
     // ------------------------------------------------------------------
     // 描画メソッド
     // ------------------------------------------------------------------
-    
+
     /**
      * 1行テキスト描画
-     * @param text テキスト
-     * @param x X座標
-     * @param y Y座標（ベースライン）
-     * @param style RichTextStyle
-     * @param appearance RichTextAppearance
-     * @return 描画領域
      */
-    tTJSVariant drawText(const tjs_char* text, REAL x, REAL y,
-                          RichTextStyle* style, RichTextAppearance* appearance)
-    {
-        if (!style || !appearance) {
-            TVPThrowExceptionMessage(TJS_W("style and appearance are required"));
-        }
-        
-        std::u16string u16text = tjsToU16(text);
-        richtext::RectF rect = renderer_.drawText(u16text, x, y, style->style, appearance->appearance);
-        renderer_.sync();
-        
-        redraw(static_cast<int>(rect.x), static_cast<int>(rect.y),
-               static_cast<int>(rect.width) + 1, static_cast<int>(rect.height) + 1);
-        
-        return toVariant(rect);
-    }
-    
-    /**
-     * パラグラフ描画
-     * @param text テキスト
-     * @param x X座標
-     * @param y Y座標
-     * @param width 描画幅
-     * @param height 描画高さ
-     * @param hAlign 水平アライン (0:Left, 1:Center, 2:Right)
-     * @param vAlign 垂直アライン (0:Top, 1:Middle, 2:Bottom)
-     * @param style RichTextStyle
-     * @param appearance RichTextAppearance
-     * @return 描画領域
-     */
-    tTJSVariant drawParagraph(const tjs_char* text, REAL x, REAL y, REAL width, REAL height,
-                               int hAlign, int vAlign,
+    tTJSVariant drawStyleText(const tjs_char* text, REAL x, REAL y,
                                RichTextStyle* style, RichTextAppearance* appearance)
     {
         if (!style || !appearance) {
             TVPThrowExceptionMessage(TJS_W("style and appearance are required"));
         }
-        
+        std::u16string u16text = tjsToU16(text);
+        richtext::RectF rect = renderer_.drawText(u16text, x, y, style->style, appearance->appearance);
+        renderer_.sync();
+        redraw(static_cast<int>(rect.x), static_cast<int>(rect.y),
+               static_cast<int>(rect.width) + 1, static_cast<int>(rect.height) + 1);
+        return toVariant(rect);
+    }
+
+    /**
+     * パラグラフ描画
+     */
+    tTJSVariant drawStyleParagraph(const tjs_char* text, REAL x, REAL y, REAL width, REAL height,
+                                    int hAlign, int vAlign,
+                                    RichTextStyle* style, RichTextAppearance* appearance)
+    {
+        if (!style || !appearance) {
+            TVPThrowExceptionMessage(TJS_W("style and appearance are required"));
+        }
         std::u16string u16text = tjsToU16(text);
         richtext::RectF r(x, y, width, height);
-        
         richtext::RectF result = renderer_.drawParagraph(
             u16text, r,
             static_cast<ParagraphLayout::HAlign>(hAlign),
             static_cast<ParagraphLayout::VAlign>(vAlign),
             style->style, appearance->appearance);
-        
         renderer_.sync();
-        
         redraw(static_cast<int>(result.x), static_cast<int>(result.y),
                static_cast<int>(result.width) + 1, static_cast<int>(result.height) + 1);
-        
         return toVariant(result);
     }
-    
+
     /**
      * タグ付きテキスト描画
-     * @param text タグ付きテキスト
-     * @param x X座標
-     * @param y Y座標
-     * @param width 幅
-     * @param height 高さ
-     * @param hAlign 水平アライン
-     * @param vAlign 垂直アライン
-     * @param defaultStyle デフォルトスタイル
-     * @param defaultAppearance デフォルト外観
-     * @return 描画領域
      */
-    tTJSVariant drawTaggedText(const tjs_char* text, REAL x, REAL y, REAL width, REAL height,
-                                int hAlign, int vAlign,
-                                RichTextStyle* defaultStyle,
-                                RichTextAppearance* defaultAppearance)
+    tTJSVariant drawStyleTaggedText(const tjs_char* text, REAL x, REAL y, REAL width, REAL height,
+                                     int hAlign, int vAlign,
+                                     RichTextStyle* defaultStyle,
+                                     RichTextAppearance* defaultAppearance)
     {
         if (!defaultStyle || !defaultAppearance) {
             TVPThrowExceptionMessage(TJS_W("defaultStyle and defaultAppearance are required"));
         }
-        
         std::u16string u16text = tjsToU16(text);
         richtext::RectF r(x, y, width, height);
-        
-        // タグパーサーでパース
         TagParser parser;
         auto parseResult = parser.parse(u16text, defaultStyle->style, defaultAppearance->appearance);
-        
-        // スタイルラン配列を使用してパラグラフ描画
         richtext::RectF result = renderer_.drawParagraph(
             parseResult.plainText, r,
             static_cast<ParagraphLayout::HAlign>(hAlign),
             static_cast<ParagraphLayout::VAlign>(vAlign),
             parseResult.styleRuns,
             defaultAppearance->appearance);
-        
         renderer_.sync();
-        
         redraw(static_cast<int>(result.x), static_cast<int>(result.y),
                static_cast<int>(result.width) + 1, static_cast<int>(result.height) + 1);
-        
         return toVariant(result);
     }
-    
+
+    /**
+     * ParagraphLayout 描画（逐次表示対応）
+     */
+    tTJSVariant drawStyleParagraphLayout(RichTextParagraphLayout* paraLayout,
+                                          REAL x, REAL y, REAL width, REAL height,
+                                          int hAlign, int vAlign,
+                                          RichTextStyle* style,
+                                          RichTextAppearance* appearance,
+                                          int maxGlyphs = -1)
+    {
+        if (!paraLayout || !style || !appearance) {
+            TVPThrowExceptionMessage(TJS_W("paraLayout, style and appearance are required"));
+        }
+        richtext::RectF r(x, y, width, height);
+        richtext::RectF result = renderer_.drawParagraphLayout(
+            paraLayout->layout, r,
+            static_cast<ParagraphLayout::HAlign>(hAlign),
+            static_cast<ParagraphLayout::VAlign>(vAlign),
+            style->style, appearance->appearance,
+            maxGlyphs);
+        renderer_.sync();
+        redraw(static_cast<int>(result.x), static_cast<int>(result.y),
+               static_cast<int>(result.width) + 1, static_cast<int>(result.height) + 1);
+        return toVariant(result);
+    }
+
+    /**
+     * 矩形描画
+     */
+    void fillRect(REAL x, REAL y, REAL width, REAL height,
+                  tjs_uint32 fillColor, tjs_uint32 strokeColor = 0,
+                  REAL strokeWidth = 0)
+    {
+        renderer_.drawRect(x, y, width, height, fillColor, strokeColor, strokeWidth);
+        renderer_.sync();
+        redraw(static_cast<int>(x), static_cast<int>(y),
+               static_cast<int>(width) + 1, static_cast<int>(height) + 1);
+    }
+
     // ------------------------------------------------------------------
     // 計測メソッド
     // ------------------------------------------------------------------
-    
+
     /**
      * テキスト計測
-     * @param text テキスト
-     * @param style RichTextStyle
-     * @return サイズ {width, height, ascent, descent}
      */
-    tTJSVariant measureText(const tjs_char* text, RichTextStyle* style)
+    tTJSVariant measureStyleText(const tjs_char* text, RichTextStyle* style)
     {
         if (!style) {
             TVPThrowExceptionMessage(TJS_W("style is required"));
         }
-        
         std::u16string u16text = tjsToU16(text);
         TextLayout layout = renderer_.measureText(u16text, style->style);
-        
-        // 結果を辞書で返す
         iTJSDispatch2* dict = TJSCreateDictionaryObject();
         tTJSVariant val;
-        
         val = layout.getWidth();
         dict->PropSet(TJS_MEMBERENSURE, TJS_W("width"), nullptr, &val, dict);
-        
         val = layout.getHeight();
         dict->PropSet(TJS_MEMBERENSURE, TJS_W("height"), nullptr, &val, dict);
-        
         val = layout.getAscent();
         dict->PropSet(TJS_MEMBERENSURE, TJS_W("ascent"), nullptr, &val, dict);
-        
         val = layout.getDescent();
         dict->PropSet(TJS_MEMBERENSURE, TJS_W("descent"), nullptr, &val, dict);
-        
         tTJSVariant result(dict, dict);
         dict->Release();
         return result;
     }
-    
+
     /**
      * パラグラフ計測
-     * @param text テキスト
-     * @param maxWidth 最大幅
-     * @param style RichTextStyle
-     * @return サイズ情報 {width, height, lineCount}
      */
-    tTJSVariant measureParagraph(const tjs_char* text, REAL maxWidth, RichTextStyle* style)
+    tTJSVariant measureStyleParagraph(const tjs_char* text, REAL maxWidth, RichTextStyle* style)
     {
         if (!style) {
             TVPThrowExceptionMessage(TJS_W("style is required"));
         }
-        
         std::u16string u16text = tjsToU16(text);
         ParagraphLayout layout = renderer_.measureParagraph(u16text, maxWidth, style->style);
-        
-        // 結果を辞書で返す
         iTJSDispatch2* dict = TJSCreateDictionaryObject();
         tTJSVariant val;
-        
         val = layout.getMaxWidth();
         dict->PropSet(TJS_MEMBERENSURE, TJS_W("width"), nullptr, &val, dict);
-        
         val = layout.getTotalHeight();
         dict->PropSet(TJS_MEMBERENSURE, TJS_W("height"), nullptr, &val, dict);
-        
         val = static_cast<int>(layout.getLineCount());
         dict->PropSet(TJS_MEMBERENSURE, TJS_W("lineCount"), nullptr, &val, dict);
-        
         tTJSVariant result(dict, dict);
         dict->Release();
         return result;
@@ -628,6 +696,31 @@ NCB_REGISTER_SUBCLASS(RichTextAppearance) {
     NCB_METHOD(clone);
 };
 
+// RichTextLayout サブクラス
+NCB_REGISTER_SUBCLASS(RichTextLayout) {
+    NCB_CONSTRUCTOR(());
+    NCB_METHOD(measure);
+    NCB_PROPERTY_RO(width, getWidth);
+    NCB_PROPERTY_RO(height, getHeight);
+    NCB_PROPERTY_RO(ascent, getAscent);
+    NCB_PROPERTY_RO(descent, getDescent);
+    NCB_PROPERTY_RO(glyphCount, getGlyphCount);
+    NCB_METHOD(clone);
+};
+
+// RichTextParagraphLayout サブクラス
+NCB_REGISTER_SUBCLASS(RichTextParagraphLayout) {
+    NCB_CONSTRUCTOR(());
+    NCB_METHOD(measure);
+    NCB_PROPERTY_RO(lineCount, getLineCount);
+    NCB_PROPERTY_RO(totalHeight, getTotalHeight);
+    NCB_PROPERTY_RO(maxWidth, getMaxWidth);
+    NCB_PROPERTY_RO(totalGlyphCount, getTotalGlyphCount);
+    NCB_PROPERTY(lineSpacing, getLineSpacing, setLineSpacing);
+    NCB_METHOD(getLineInfo);
+    NCB_METHOD(clone);
+};
+
 // RichText クラス (静的メソッドと定数)
 NCB_REGISTER_CLASS(RichText)
 {
@@ -649,6 +742,8 @@ NCB_REGISTER_CLASS(RichText)
     // サブクラス
     NCB_SUBCLASS(Style, RichTextStyle);
     NCB_SUBCLASS(Appearance, RichTextAppearance);
+    NCB_SUBCLASS(Layout, RichTextLayout);
+    NCB_SUBCLASS(ParagraphLayout, RichTextParagraphLayout);
 }
 
 // LayerExRichText インスタンスフック
@@ -670,19 +765,21 @@ NCB_GET_INSTANCE_HOOK(LayerExRichText)
 // Layer 拡張としてアタッチ
 NCB_ATTACH_CLASS_WITH_HOOK(LayerExRichText, Layer) {
     // 描画メソッド
-    NCB_METHOD(drawText);
-    NCB_METHOD(drawParagraph);
-    NCB_METHOD(drawTaggedText);
-    
+    NCB_METHOD(drawStyleText);
+    NCB_METHOD(drawStyleParagraph);
+    NCB_METHOD(drawStyleTaggedText);
+    NCB_METHOD(drawStyleParagraphLayout);
+    NCB_METHOD(fillRect);
+
     // 計測メソッド
-    NCB_METHOD(measureText);
-    NCB_METHOD(measureParagraph);
-    
+    NCB_METHOD(measureStyleText);
+    NCB_METHOD(measureStyleParagraph);
+
     // キャッシュ制御
     NCB_PROPERTY(useCache, getUseCache, setUseCache);
     NCB_METHOD(clearCache);
     NCB_METHOD(setCacheMaxSize);
-    
+
     // 同期
     NCB_METHOD(sync);
 }

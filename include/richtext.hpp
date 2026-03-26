@@ -25,5 +25,6 @@
 #include "richtext/ParagraphLayout.hpp"
 #include "richtext/TextRenderer.hpp"
 #include "richtext/TagParser.hpp"
+#include "richtext/TextureAtlas.hpp"
 
 #endif // RICHTEXT_HPP

@@ -8,6 +8,9 @@
 #include "richtext/GlyphRenderer.hpp"
 #include "richtext/TagParser.hpp"
 
+#include <algorithm>
+#include <vector>
+
 namespace richtext {
 
 //------------------------------------------------------------------------------
@@ -134,23 +137,99 @@ RectF TextRenderer::drawText(const std::u16string& text,
 
 RectF TextRenderer::drawLayout(const TextLayout& layout,
                                float x, float y,
-                               const Appearance& appearance) {
+                               const Appearance& appearance,
+                               int maxGlyphs) {
     if (!glyphRenderer_) {
         return RectF();
     }
-    
+
     // 各グリフを描画
     const auto& glyphs = layout.getGlyphs();
     const TextStyle& style = layout.getStyle();
-    
-    for (const auto& glyph : glyphs) {
-        glyphRenderer_->renderGlyph(glyph, x, y, style, appearance);
+
+    if (maxGlyphs >= 0) {
+        // 論理順（charIndex 順）で先頭 maxGlyphs 文字分のグリフのみ描画
+        // Bidi テキストではビジュアル順と論理順が異なるため、
+        // charIndex でフィルタリングする必要がある
+        // まず論理順での N 番目の文字位置を特定
+        std::vector<size_t> charIndices;
+        charIndices.reserve(glyphs.size());
+        for (const auto& g : glyphs) {
+            charIndices.push_back(g.charIndex);
+        }
+        // charIndex をソートして重複除去し、先頭 maxGlyphs 文字の charIndex を得る
+        std::vector<size_t> sorted = charIndices;
+        std::sort(sorted.begin(), sorted.end());
+        sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+        size_t threshold = (static_cast<size_t>(maxGlyphs) < sorted.size())
+                           ? sorted[maxGlyphs]
+                           : SIZE_MAX;
+        for (size_t i = 0; i < glyphs.size(); ++i) {
+            if (glyphs[i].charIndex < threshold) {
+                glyphRenderer_->renderGlyph(glyphs[i], x, y, style, appearance);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < glyphs.size(); ++i) {
+            glyphRenderer_->renderGlyph(glyphs[i], x, y, style, appearance);
+        }
     }
-    
+
     // バウンディングボックスを返す
     auto bounds = layout.getBounds();
     return RectF(x + bounds.left, y + bounds.top,
                 bounds.width(), bounds.height());
+}
+
+RectF TextRenderer::drawParagraphLayout(const ParagraphLayout& para,
+                                         const RectF& rect,
+                                         ParagraphLayout::HAlign hAlign,
+                                         ParagraphLayout::VAlign vAlign,
+                                         const TextStyle& style,
+                                         const Appearance& appearance,
+                                         int maxGlyphs) {
+    RectF totalBounds;
+    bool first = true;
+    int remaining = maxGlyphs;
+
+    for (size_t i = 0; i < para.getLineCount(); ++i) {
+        if (remaining == 0) break;
+
+        auto pos = para.getLinePosition(i, rect.x, rect.y,
+                                        rect.width, rect.height,
+                                        hAlign, vAlign);
+
+        TextLayout lineLayout = para.getLineLayout(i, style);
+
+        int lineMax = remaining;  // -1 はそのまま「全て」として渡る
+        RectF lineBounds = drawLayout(lineLayout, pos.x, pos.y, appearance, lineMax);
+
+        if (remaining > 0) {
+            // 論理文字数（ユニーク charIndex 数）で減算
+            const auto& glyphs = lineLayout.getGlyphs();
+            std::vector<size_t> chars;
+            chars.reserve(glyphs.size());
+            for (const auto& g : glyphs) chars.push_back(g.charIndex);
+            std::sort(chars.begin(), chars.end());
+            chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
+            size_t lineCharCount = chars.size();
+            size_t drawn = std::min(static_cast<size_t>(remaining), lineCharCount);
+            remaining -= static_cast<int>(drawn);
+        }
+
+        if (first) {
+            totalBounds = lineBounds;
+            first = false;
+        } else {
+            float left = std::min(totalBounds.x, lineBounds.x);
+            float top = std::min(totalBounds.y, lineBounds.y);
+            float right = std::max(totalBounds.right(), lineBounds.right());
+            float bottom = std::max(totalBounds.bottom(), lineBounds.bottom());
+            totalBounds = RectF(left, top, right - left, bottom - top);
+        }
+    }
+
+    return totalBounds;
 }
 
 RectF TextRenderer::drawParagraph(const std::u16string& text,
@@ -159,36 +238,9 @@ RectF TextRenderer::drawParagraph(const std::u16string& text,
                                   ParagraphLayout::VAlign vAlign,
                                   const TextStyle& style,
                                   const Appearance& appearance) {
-    // パラグラフレイアウト
     ParagraphLayout para;
     para.layout(text, rect.width, style);
-    
-    RectF totalBounds;
-    bool first = true;
-    
-    // 各行を描画
-    for (size_t i = 0; i < para.getLineCount(); ++i) {
-        auto pos = para.getLinePosition(i, rect.x, rect.y,
-                                        rect.width, rect.height,
-                                        hAlign, vAlign);
-        
-        TextLayout lineLayout = para.getLineLayout(i, style);
-        RectF lineBounds = drawLayout(lineLayout, pos.x, pos.y, appearance);
-        
-        if (first) {
-            totalBounds = lineBounds;
-            first = false;
-        } else {
-            // Union
-            float left = std::min(totalBounds.x, lineBounds.x);
-            float top = std::min(totalBounds.y, lineBounds.y);
-            float right = std::max(totalBounds.right(), lineBounds.right());
-            float bottom = std::max(totalBounds.bottom(), lineBounds.bottom());
-            totalBounds = RectF(left, top, right - left, bottom - top);
-        }
-    }
-    
-    return totalBounds;
+    return drawParagraphLayout(para, rect, hAlign, vAlign, style, appearance);
 }
 
 RectF TextRenderer::drawParagraph(const std::u16string& text,
@@ -197,41 +249,15 @@ RectF TextRenderer::drawParagraph(const std::u16string& text,
                                   ParagraphLayout::VAlign vAlign,
                                   const std::vector<ParagraphLayout::StyleRun>& styleRuns,
                                   const Appearance& defaultAppearance) {
-    // パラグラフレイアウト（複数スタイル）
     ParagraphLayout para;
     para.layout(text, rect.width, styleRuns);
-    
-    RectF totalBounds;
-    bool first = true;
-    
-    // 各行を描画
-    for (size_t i = 0; i < para.getLineCount(); ++i) {
-        // デフォルトスタイルを使用（簡易実装）
-        TextStyle defaultStyle;
-        if (!styleRuns.empty()) {
-            defaultStyle = styleRuns[0].style;
-        }
-        
-        auto pos = para.getLinePosition(i, rect.x, rect.y,
-                                        rect.width, rect.height,
-                                        hAlign, vAlign);
-        
-        TextLayout lineLayout = para.getLineLayout(i, defaultStyle);
-        RectF lineBounds = drawLayout(lineLayout, pos.x, pos.y, defaultAppearance);
-        
-        if (first) {
-            totalBounds = lineBounds;
-            first = false;
-        } else {
-            float left = std::min(totalBounds.x, lineBounds.x);
-            float top = std::min(totalBounds.y, lineBounds.y);
-            float right = std::max(totalBounds.right(), lineBounds.right());
-            float bottom = std::max(totalBounds.bottom(), lineBounds.bottom());
-            totalBounds = RectF(left, top, right - left, bottom - top);
-        }
+
+    TextStyle defaultStyle;
+    if (!styleRuns.empty()) {
+        defaultStyle = styleRuns[0].style;
     }
-    
-    return totalBounds;
+
+    return drawParagraphLayout(para, rect, hAlign, vAlign, defaultStyle, defaultAppearance);
 }
 
 RectF TextRenderer::drawStyledText(const std::u16string& text,
@@ -472,6 +498,34 @@ void TextRenderer::drawGlyph(const TextLayout& layout,
     const TextStyle& style = layout.getStyle();
     
     glyphRenderer_->renderGlyph(glyph, x, y, style, appearance);
+}
+
+void TextRenderer::drawRect(float x, float y, float width, float height,
+                             uint32_t fillColor, uint32_t strokeColor,
+                             float strokeWidth) {
+    if (!canvas_) return;
+
+    tvg::Shape* shape = tvg::Shape::gen();
+    if (!shape) return;
+
+    shape->appendRect(x, y, width, height, 0, 0);
+
+    uint8_t fa = (fillColor >> 24) & 0xFF;
+    uint8_t fr = (fillColor >> 16) & 0xFF;
+    uint8_t fg = (fillColor >> 8) & 0xFF;
+    uint8_t fb = fillColor & 0xFF;
+    shape->fill(fr, fg, fb, fa);
+
+    if (strokeWidth > 0 && strokeColor != 0) {
+        uint8_t sa = (strokeColor >> 24) & 0xFF;
+        uint8_t sr = (strokeColor >> 16) & 0xFF;
+        uint8_t sg = (strokeColor >> 8) & 0xFF;
+        uint8_t sb = strokeColor & 0xFF;
+        shape->strokeWidth(strokeWidth);
+        shape->strokeFill(sr, sg, sb, sa);
+    }
+
+    canvas_->add(shape);
 }
 
 } // namespace richtext

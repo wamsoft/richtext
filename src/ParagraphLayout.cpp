@@ -11,6 +11,9 @@
 #include <minikin/MinikinPaint.h>
 #include <minikin/MeasuredText.h>
 
+#include <algorithm>
+#include <vector>
+
 namespace richtext {
 
 //------------------------------------------------------------------------------
@@ -67,6 +70,7 @@ void ParagraphLayout::layout(const std::u16string& text,
     maxWidth_ = maxWidth;
     lines_.clear();
     totalHeight_ = 0;
+    glyphCountCached_ = false;
 
     if (text.empty() || styleRuns.empty()) {
         return;
@@ -218,6 +222,30 @@ TextLayout ParagraphLayout::getLineLayout(size_t lineIndex, const TextStyle& sty
     layout.layout(std::move(lineText), style);
 
     return layout;
+}
+
+size_t ParagraphLayout::getTotalGlyphCount() const {
+    if (glyphCountCached_) return cachedTotalGlyphCount_;
+
+    size_t total = 0;
+    TextStyle defaultStyle;
+    if (!styleRuns_.empty()) defaultStyle = styleRuns_[0].style;
+
+    for (size_t i = 0; i < lines_.size(); ++i) {
+        TextLayout lineLayout = getLineLayout(i, defaultStyle);
+        // 論理文字数（ユニーク charIndex 数）でカウント
+        const auto& glyphs = lineLayout.getGlyphs();
+        std::vector<size_t> chars;
+        chars.reserve(glyphs.size());
+        for (const auto& g : glyphs) chars.push_back(g.charIndex);
+        std::sort(chars.begin(), chars.end());
+        chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
+        total += chars.size();
+    }
+
+    cachedTotalGlyphCount_ = total;
+    glyphCountCached_ = true;
+    return total;
 }
 
 float ParagraphLayout::getRunWidth(size_t start, size_t end) const {

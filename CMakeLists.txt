@@ -57,6 +57,7 @@ set(RICHTEXT_LIB_SOURCES
     src/GlyphRenderer.cpp
     src/TextRenderer.cpp
     src/TagParser.cpp
+    src/TextureAtlas.cpp
 )
 
 add_library(richtext_lib STATIC ${RICHTEXT_LIB_SOURCES})
@@ -94,4 +95,8 @@ target_compile_options(sample_render PRIVATE /utf-8)
 add_executable(debug_bidi sample/debug_bidi.cpp)
 target_link_libraries(debug_bidi PRIVATE richtext_lib)
 target_compile_options(debug_bidi PRIVATE /utf-8)
+
+add_executable(sample_sequential sample/sample_sequential.cpp)
+target_link_libraries(sample_sequential PRIVATE richtext_lib)
+target_compile_options(sample_sequential PRIVATE /utf-8)
 
