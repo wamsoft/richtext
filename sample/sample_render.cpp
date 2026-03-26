@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 4050;
+    const int HEIGHT = 4250;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -755,25 +755,36 @@ int main(int argc, char* argv[]) {
         styles["default"]      = makeStyle(jaCollection, 28.0f);
         appearances["default"] = blackFill;
 
-        richtext::RectF rubyRect(LEFT, y, PARA_W, 160.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, rubyRect, BORDER_BLUE, 2);
-        // ルビはベーステキストの ascent 上に配置されるため、
-        // パラグラフ領域の1行目ではルビが領域上端からはみ出る。
-        // はみ出しを避けるには描画領域の y 座標をルビ分（fontSize * rubyScale 程度）下げる。
-        renderer.drawStyledText(
-            utf8ToUtf16(
-                "<ruby text='きょう'>今日</ruby>は<ruby text='てんき'>天気</ruby>がいい。"
-                "<ruby text='さくら'>桜</ruby>の<ruby text='はな'>花</ruby>が<ruby text='さ'>咲</ruby>きました。"
-                // ルビが長い場合、隣接する別々の ruby タグではルビ同士が重なる。
-                // 回避するにはベーステキストをまとめて1つの ruby タグで囲む:
-                "<ruby text='とうきょうタワー'>東京塔</ruby>に"
-                "<ruby text='い'>行</ruby>きたい。"),
-            rubyRect,
+        // ルビ付きテキスト（<br> で強制改行して2行にする）
+        auto rubyText = utf8ToUtf16(
+            "<ruby text='きょう'>今日</ruby>は<ruby text='てんき'>天気</ruby>がいい。"
+            "<ruby text='さくら'>桜</ruby>の<ruby text='はな'>花</ruby>が<ruby text='さ'>咲</ruby>きました。<br>"
+            "<ruby text='とうきょうタワー'>東京塔</ruby>に"
+            "<ruby text='い'>行</ruby>きたい。");
+
+        // 19a: 行間なし（デフォルト）— 2行目のルビが1行目のテキストに被る
+        drawSectionLabel(renderer, baseStyle, "  [19a] lineSpacing=0 (default, ruby overlaps)", LEFT, y);
+        y += 16;
+        richtext::RectF rubyRect1(LEFT, y, PARA_W, 90.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, rubyRect1, BORDER_BLUE, 2);
+        renderer.drawStyledText(rubyText, rubyRect1,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
             styles, appearances);
+        y += 100 + 5;
+
+        // 19b: ルビ分の行間を追加 — ルビが被らない
+        drawSectionLabel(renderer, baseStyle, "  [19b] lineSpacing=16 (room for ruby)", LEFT, y);
+        y += 16;
+        richtext::RectF rubyRect2(LEFT, y, PARA_W, 110.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, rubyRect2, BORDER_GREEN, 2);
+        renderer.drawStyledText(rubyText, rubyRect2,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances, 16.0f);
+        y += 120;
     }
-    y += 170 + SECTION;
+    y += SECTION;
 
     //==========================================================================
     // 20. アラインメント比較（左・中央・右）

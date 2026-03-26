@@ -188,7 +188,8 @@ public:
                          ParagraphLayout::HAlign hAlign,
                          ParagraphLayout::VAlign vAlign,
                          const std::map<std::string, TextStyle>& styles,
-                         const std::map<std::string, Appearance>& appearances);
+                         const std::map<std::string, Appearance>& appearances,
+                         float lineSpacing = 0.0f);
     
     // ------------------------------------------------------------------
     // 計測メソッド（描画はしない）

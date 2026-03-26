@@ -239,7 +239,8 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
                                    ParagraphLayout::HAlign hAlign,
                                    ParagraphLayout::VAlign vAlign,
                                    const std::map<std::string, TextStyle>& styles,
-                                   const std::map<std::string, Appearance>& appearances) {
+                                   const std::map<std::string, Appearance>& appearances,
+                                   float lineSpacing) {
     if (!glyphRenderer_ || text.empty()) {
         return rect;
     }
@@ -264,6 +265,9 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
 
     // パラグラフレイアウト（行分割のみ目的。styleRuns を使ってフォント選択も正確に）
     ParagraphLayout para;
+    if (lineSpacing > 0.0f) {
+        para.setLineSpacing(lineSpacing);
+    }
     if (!parsed.styleRuns.empty()) {
         para.layout(parsed.plainText, rect.width, parsed.styleRuns);
     } else {
