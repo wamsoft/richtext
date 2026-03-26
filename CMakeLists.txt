@@ -88,5 +88,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(sample_sequential sample/sample_sequential.cpp)
     target_link_libraries(sample_sequential PRIVATE richtext_lib)
     target_compile_options(sample_sequential PRIVATE /utf-8)
+
+    add_executable(sample_texture sample/sample_texture.cpp)
+    target_link_libraries(sample_texture PRIVATE richtext_lib)
+    target_compile_options(sample_texture PRIVATE /utf-8)
 endif()
 
