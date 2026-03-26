@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 4580;
+    const int HEIGHT = 4730;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -473,27 +473,76 @@ int main(int argc, char* argv[]) {
     //--------------------------------------------------------------------------
     printf("\n10. Bidirectional text (Bidi)...\n");
 
-    // 10a. DEFAULT_LTR で混在テキスト
-    drawSectionLabel(renderer, baseStyle, "[10a] Mixed LTR+RTL (DEFAULT_LTR)", LEFT, y);
+    // 10a. Bidi::LTR（強制LTR段落方向）
+    // LTR段落: Hello が左端、アラビア語は内部で右から左に表示
+    drawSectionLabel(renderer, baseStyle, "[10a] Bidi::LTR - LTR paragraph direction", LEFT, y);
     y += 18;
     {
-        richtext::TextStyle mixStyle = makeStyle(multiCollection, 28.0f);
-        mixStyle.bidi = minikin::Bidi::DEFAULT_LTR;
-        std::u16string mixedText = utf8ToUtf16("Hello \u0645\u0631\u062D\u0628\u0627 World");
-        renderer.drawText(mixedText, LEFT, y, mixStyle, blackFill);
+        richtext::TextStyle ltrStyle = makeStyle(multiCollection, 28.0f);
+        ltrStyle.bidi = minikin::Bidi::LTR;
+        auto bidiText = utf8ToUtf16("Hello \u0645\u0631\u062D\u0628\u0627 World \u0634\u0643\u0631\u0627");
+        richtext::RectF ltrRect(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, ltrRect, BORDER_RED);
+        renderer.drawParagraph(bidiText, ltrRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            ltrStyle, blackFill);
     }
-    y += LINE + 8;
+    y += 48 + 8;
 
-    // 10b. DEFAULT_RTL で同テキスト
-    drawSectionLabel(renderer, baseStyle, "[10b] Same text with DEFAULT_RTL", LEFT, y);
+    // 10b. Bidi::RTL（強制RTL段落方向）
+    // RTL段落: アラビア語 شكرا が左端（視覚的右から左）、Hello が右端
+    drawSectionLabel(renderer, baseStyle, "[10b] Bidi::RTL - RTL paragraph direction", LEFT, y);
     y += 18;
     {
         richtext::TextStyle rtlStyle = makeStyle(multiCollection, 28.0f);
-        rtlStyle.bidi = minikin::Bidi::DEFAULT_RTL;
-        std::u16string mixedText = utf8ToUtf16("Hello \u0645\u0631\u062D\u0628\u0627 World");
-        renderer.drawText(mixedText, LEFT, y, rtlStyle, blackFill);
+        rtlStyle.bidi = minikin::Bidi::RTL;
+        auto bidiText = utf8ToUtf16("Hello \u0645\u0631\u062D\u0628\u0627 World \u0634\u0643\u0631\u0627");
+        richtext::RectF rtlRect(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, rtlRect, BORDER_BLUE);
+        renderer.drawParagraph(bidiText, rtlRect,
+            richtext::ParagraphLayout::HAlign::Right,
+            richtext::ParagraphLayout::VAlign::Top,
+            rtlStyle, blackFill);
     }
-    y += LINE + SECTION;
+    y += 48 + 8;
+
+    // 10c/10d. 日本語+アラビア語混在
+    // 注: CJK・ひらがな・カタカナの Unicode bidi クラスは "L"（LTR）。
+    // RTL段落ではラン（ブロック）の配置順は入れ替わるが、
+    // 日本語ラン内部の文字順は LTR のまま維持される（UBA仕様通り）。
+    drawSectionLabel(renderer, baseStyle, "[10c] Japanese+Arabic LTR (run order: JA > AR > JA)", LEFT, y);
+    y += 18;
+    {
+        auto jaArCollection = fm.createCollection({"ja", "ar", "sans", "emoji"});
+        richtext::TextStyle ltrStyle = makeStyle(jaArCollection, 28.0f, 400, "ja_JP");
+        ltrStyle.bidi = minikin::Bidi::LTR;
+        auto bidiText = utf8ToUtf16("\u65E5\u672C\u8A9E\u3068\u0627\u0644\u0639\u0631\u0628\u064A\u0629\u306E\u6DF7\u5728\u30C6\u30B9\u30C8");
+        richtext::RectF rect(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, rect, BORDER_RED);
+        renderer.drawParagraph(bidiText, rect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            ltrStyle, blackFill);
+    }
+    y += 48 + 8;
+
+    // 10d. 同テキスト RTL — ランの配置順が逆転（JA < AR < JA）
+    drawSectionLabel(renderer, baseStyle, "[10d] Same text RTL (run order reversed, chars unchanged)", LEFT, y);
+    y += 18;
+    {
+        auto jaArCollection = fm.createCollection({"ja", "ar", "sans", "emoji"});
+        richtext::TextStyle rtlStyle = makeStyle(jaArCollection, 28.0f, 400, "ja_JP");
+        rtlStyle.bidi = minikin::Bidi::RTL;
+        auto bidiText = utf8ToUtf16("\u65E5\u672C\u8A9E\u3068\u0627\u0644\u0639\u0631\u0628\u064A\u0629\u306E\u6DF7\u5728\u30C6\u30B9\u30C8");
+        richtext::RectF rect(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, rect, BORDER_BLUE);
+        renderer.drawParagraph(bidiText, rect,
+            richtext::ParagraphLayout::HAlign::Right,
+            richtext::ParagraphLayout::VAlign::Top,
+            rtlStyle, blackFill);
+    }
+    y += 48 + SECTION;
 
     //==========================================================================
     // 11. 日本語長文テキスト折り返しサンプル（絵文字付き）
