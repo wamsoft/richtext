@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 4250;
+    const int HEIGHT = 4430;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -831,10 +831,50 @@ int main(int argc, char* argv[]) {
     }
     y += 90 + SECTION;
 
+    //==========================================================================
+    // 21. 垂直アラインメント比較（上・中央・下）
+    //==========================================================================
+    printf("\n21. Vertical alignment comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[21] VAlign: Top / Middle / Bottom (Center, with borders)", LEFT, y);
+    y += 18;
+
+    {
+        richtext::TextStyle valignStyle = makeStyle(jaCollection, 18.0f);
+        const float boxW = (PARA_W - 20) / 3.0f;
+        const float boxH = 120.0f;
+
+        auto valignText = utf8ToUtf16("上下アライン確認用テキスト。");
+
+        // Top
+        richtext::RectF topRect(LEFT, y, boxW, boxH);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, topRect, BORDER_RED, 2);
+        renderer.drawParagraph(valignText, topRect,
+            richtext::ParagraphLayout::HAlign::Center,
+            richtext::ParagraphLayout::VAlign::Top,
+            valignStyle, redFill);
+
+        // Middle
+        richtext::RectF midRect(LEFT + boxW + 10, y, boxW, boxH);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, midRect, BORDER_BLUE, 2);
+        renderer.drawParagraph(valignText, midRect,
+            richtext::ParagraphLayout::HAlign::Center,
+            richtext::ParagraphLayout::VAlign::Middle,
+            valignStyle, blueFill);
+
+        // Bottom
+        richtext::RectF botRect(LEFT + (boxW + 10) * 2, y, boxW, boxH);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, botRect, BORDER_GREEN, 2);
+        renderer.drawParagraph(valignText, botRect,
+            richtext::ParagraphLayout::HAlign::Center,
+            richtext::ParagraphLayout::VAlign::Bottom,
+            valignStyle, greenFill);
+    }
+    y += 130 + SECTION;
+
     //--------------------------------------------------------------------------
     // 20. 描画同期・保存
     //--------------------------------------------------------------------------
-    printf("\n21. Syncing and saving...\n");
+    printf("\n22. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP
