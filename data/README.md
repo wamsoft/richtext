@@ -1,6 +1,18 @@
 # About
 
-テスト用のフォントデータ置き場です。
+テスト用のフォントデータ置き場です。フォントファイルはリポジトリに含まれていないため、初回セットアップ時にダウンロードが必要です。
+
+## フォントのダウンロード
+
+```bash
+# プロジェクトルートから実行
+make fontdata
+
+# または直接スクリプトを実行
+python3 data/download_fonts.py
+```
+
+既にダウンロード済みのフォントはスキップされます。
 
 ## Google Fonts Noto Sans 多言語フォント
 
@@ -17,6 +29,7 @@
 | NotoSansTC-Regular.otf | 中国語（繁体字） |
 | NotoSansArabic-Regular.ttf | アラビア語 (UI向け) |
 | NotoNaskhArabic-Regular.ttf | アラビア語 (本文向け、Naskh書体) |
+| NotoColorEmoji.ttf | カラー絵文字 |
+| NotoEmoji-Regular.ttf | モノクロ絵文字 |
 
 ライセンス: SIL Open Font License (OFL)
-

@@ -1,7 +1,10 @@
 SHELL = /bin/bash
 
+# fontdata ターゲットは VCPKG_ROOT 不要
+ifeq ($(filter fontdata,$(MAKECMDGOALS)),)
 ifeq ($(VCPKG_ROOT),)
 $(error Variables VCPKG_ROOT not set correctly.)
+endif
 endif
 
 ifeq ($(shell type cygpath >& /dev/null && echo true),true)
@@ -39,7 +42,7 @@ INSTALL_PREFIX?=install
 
 BUILD_PATH=$(shell cmake --preset $(PRESET) -N | grep BUILD_DIR | sed 's/.*BUILD_DIR="\(.*\)"/\1/')
 
-.PHONY: prebuild build clean install
+.PHONY: prebuild build clean install fontdata
 
 all: build
 
@@ -56,3 +59,7 @@ clean:
 
 install:
 	cmake --install $(BUILD_PATH) --config $(BUILD_TYPE) --prefix $(INSTALL_PREFIX)
+
+# テスト用 Noto フォントを Google Fonts からダウンロード
+fontdata:
+	python3 data/download_fonts.py

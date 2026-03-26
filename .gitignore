@@ -1,6 +1,10 @@
 build
 .vscode
 .claude
+.venv
 krkrZ.exe
 savedata
 output.bmp
+output.png
+data/*.ttf
+data/*.otf
