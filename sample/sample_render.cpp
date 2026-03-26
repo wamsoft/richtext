@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 3800;
+    const int HEIGHT = 4050;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -743,10 +743,43 @@ int main(int argc, char* argv[]) {
     y += 190 + SECTION;
 
     //==========================================================================
-    // 19. アラインメント比較（左・中央・右）
+    // 19. ルビ（振り仮名）サンプル
     //==========================================================================
-    printf("\n19. Alignment comparison...\n");
-    drawSectionLabel(renderer, baseStyle, "[19] Alignment: Left / Center / Right (with borders)", LEFT, y);
+    printf("\n19. Ruby (furigana) text...\n");
+    drawSectionLabel(renderer, baseStyle, "[19] Ruby (furigana) text (with border)", LEFT, y);
+    y += 18;
+
+    {
+        std::map<std::string, richtext::TextStyle>    styles;
+        std::map<std::string, richtext::Appearance>   appearances;
+        styles["default"]      = makeStyle(jaCollection, 28.0f);
+        appearances["default"] = blackFill;
+
+        richtext::RectF rubyRect(LEFT, y, PARA_W, 160.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, rubyRect, BORDER_BLUE, 2);
+        // ルビはベーステキストの ascent 上に配置されるため、
+        // パラグラフ領域の1行目ではルビが領域上端からはみ出る。
+        // はみ出しを避けるには描画領域の y 座標をルビ分（fontSize * rubyScale 程度）下げる。
+        renderer.drawStyledText(
+            utf8ToUtf16(
+                "<ruby text='きょう'>今日</ruby>は<ruby text='てんき'>天気</ruby>がいい。"
+                "<ruby text='さくら'>桜</ruby>の<ruby text='はな'>花</ruby>が<ruby text='さ'>咲</ruby>きました。"
+                // ルビが長い場合、隣接する別々の ruby タグではルビ同士が重なる。
+                // 回避するにはベーステキストをまとめて1つの ruby タグで囲む:
+                "<ruby text='とうきょうタワー'>東京塔</ruby>に"
+                "<ruby text='い'>行</ruby>きたい。"),
+            rubyRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+    }
+    y += 170 + SECTION;
+
+    //==========================================================================
+    // 20. アラインメント比較（左・中央・右）
+    //==========================================================================
+    printf("\n20. Alignment comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[20] Alignment: Left / Center / Right (with borders)", LEFT, y);
     y += 18;
 
     {
@@ -790,7 +823,7 @@ int main(int argc, char* argv[]) {
     //--------------------------------------------------------------------------
     // 20. 描画同期・保存
     //--------------------------------------------------------------------------
-    printf("\n20. Syncing and saving...\n");
+    printf("\n21. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP

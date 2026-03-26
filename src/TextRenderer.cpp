@@ -358,6 +358,27 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
             float drawY = baseY + sl.yOffset;
 
             RectF segBounds = drawLayout(sl.layout, curX, drawY, span.appearance);
+
+            // ルビ描画: ベーステキストの上に小さいサイズで中央揃え配置
+            // ルビ描画: ベーステキストの上に小さいサイズで中央揃え配置
+            if (span.hasRuby && !span.rubyText.empty()) {
+                // ルビ用スタイル（サイズを縮小）
+                TextStyle rubyStyle = span.style;
+                rubyStyle.fontSize *= parser.getOptions().rubyScale;
+
+                // ルビテキストをレイアウト
+                TextLayout rubyLayout;
+                rubyLayout.layout(span.rubyText, rubyStyle);
+
+                float rubyWidth = rubyLayout.getWidth();
+                // ベーステキスト上に中央揃え
+                float rubyX = curX + (sl.measuredWidth - rubyWidth) / 2.0f;
+                // ベースラインの ascent 分上にルビの descent 分を加えた位置
+                float rubyY = drawY + sl.layout.getAscent() + rubyLayout.getDescent();
+
+                drawLayout(rubyLayout, rubyX, rubyY, span.appearance);
+            }
+
             // MeasuredText ベースの幅で位置を進める（行分割と整合）
             curX += sl.measuredWidth;
 

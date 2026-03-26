@@ -643,18 +643,19 @@ std::string TagParser::parseAttributeValue(const std::u16string& text, size_t& p
     if (pos >= text.size()) {
         return "";
     }
-    
-    std::string result;
-    
+
+    // 属性値を UTF-16 のまま収集してから UTF-8 に変換する
+    std::u16string u16result;
+
     char16_t quote = 0;
     if (text[pos] == u'"' || text[pos] == u'\'') {
         quote = text[pos];
         ++pos;
     }
-    
+
     while (pos < text.size()) {
         char16_t c = text[pos];
-        
+
         if (quote != 0) {
             if (c == quote) {
                 ++pos;
@@ -665,12 +666,12 @@ std::string TagParser::parseAttributeValue(const std::u16string& text, size_t& p
                 break;
             }
         }
-        
-        result += static_cast<char>(c);
+
+        u16result += c;
         ++pos;
     }
-    
-    return result;
+
+    return utf16ToUtf8(u16result);
 }
 
 //------------------------------------------------------------------------------
