@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 6200;
+    const int HEIGHT = 6700;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -233,14 +233,20 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Variable Font をウェイト別に登録
+    // Variable Font をウェイト別・スタイル別に登録
     {
-        const std::string vfSans = dataDir + "NotoSans-VariableFont.ttf";
-        const std::string vfJP   = dataDir + "NotoSansJP-VariableFont.ttf";
+        const std::string vfSans       = dataDir + "NotoSans-VariableFont.ttf";
+        const std::string vfSansItalic = dataDir + "NotoSans-Italic-VariableFont.ttf";
+        const std::string vfJP         = dataDir + "NotoSansJP-VariableFont.ttf";
         uint16_t weights[] = {100, 300, 400, 500, 700, 900};
         for (uint16_t w : weights) {
+            // Upright
             if (fm.registerVariableFont(vfSans, "sans-vf", w)) {
                 printf("   [sans-vf w=%d] NotoSans-VariableFont.ttf\n", w);
+            }
+            // Italic（欧文のみ — CJK にイタリック軸はない）
+            if (fm.registerVariableFont(vfSansItalic, "sans-vf", w, true)) {
+                printf("   [sans-vf w=%d italic] NotoSans-Italic-VariableFont.ttf\n", w);
             }
             if (fm.registerVariableFont(vfJP, "ja-vf", w)) {
                 printf("   [ja-vf w=%d] NotoSansJP-VariableFont.ttf\n", w);
@@ -274,11 +280,13 @@ int main(int argc, char* argv[]) {
 
     auto makeStyle = [&](std::shared_ptr<minikin::FontCollection> col,
                          float size, uint16_t weight = 400,
-                         const char* locale = "ja_JP-u-lb-strict") {
+                         const char* locale = "ja_JP-u-lb-strict",
+                         bool italic = false) {
         richtext::TextStyle s;
         s.fontCollection = col;
         s.fontSize       = size;
         s.fontWeight     = weight;
+        s.italic         = italic;
         s.localeId       = fm.getLocaleId(locale);
         return s;
     };
@@ -1111,9 +1119,98 @@ int main(int argc, char* argv[]) {
     y += SECTION;
 
     //--------------------------------------------------------------------------
-    // 27. 描画同期・保存
+    // 27. Italic 比較（Fake Italic vs Variable Font Italic）
     //--------------------------------------------------------------------------
-    printf("\n27. Syncing and saving...\n");
+    printf("\n27. Italic comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[27] Italic comparison", LEFT, y);
+    y += 18;
+
+    {
+        // 固定ウェイトフォント（Regular のみ）→ italic=true で Fake Italic 発動
+        auto staticCollection = fm.createCollection({"sans", "ja", "emoji"});
+        // Variable Font（Upright + Italic 登録済み）→ 真のイタリック字形使用
+        auto vfCollection = fm.createCollection({"sans-vf", "ja-vf", "emoji"});
+
+        auto sampleText = utf8ToUtf16(
+            u8"Italic test — The quick brown fox jumps over the lazy dog");
+        auto sampleTextJa = utf8ToUtf16(
+            u8"Italic テスト — 日本語のイタリック ABC xyz 012");
+
+        // Regular（比較基準）
+        drawSectionLabel(renderer, baseStyle,
+            "  Regular (upright, static font)", LEFT, y);
+        y += 16;
+        richtext::RectF ri1(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, ri1, BORDER_GREEN, 1);
+        auto styleUpright = makeStyle(staticCollection, 24.0f);
+        renderer.drawParagraph(sampleText, ri1,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styleUpright, blackFill);
+        y += 48;
+
+        // Fake Italic（固定フォント + italic=true）
+        drawSectionLabel(renderer, baseStyle,
+            "  Fake Italic (static font, skew simulation)", LEFT, y);
+        y += 16;
+        richtext::RectF ri2(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, ri2, BORDER_ORANGE, 1);
+        auto styleFakeIt = makeStyle(staticCollection, 24.0f, 400,
+                                     "ja_JP-u-lb-strict", true);
+        renderer.drawParagraph(sampleText, ri2,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styleFakeIt, blackFill);
+        y += 48;
+
+        // Variable Font Italic（真のイタリック字形）
+        drawSectionLabel(renderer, baseStyle,
+            "  Variable Font Italic (true italic glyphs)", LEFT, y);
+        y += 16;
+        richtext::RectF ri3(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, ri3, BORDER_BLUE, 1);
+        auto styleVFIt = makeStyle(vfCollection, 24.0f, 400,
+                                   "ja_JP-u-lb-strict", true);
+        renderer.drawParagraph(sampleText, ri3,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styleVFIt, blackFill);
+        y += 48;
+
+        // Bold Italic（Variable Font weight=700 + italic）
+        drawSectionLabel(renderer, baseStyle,
+            "  Variable Font Bold Italic (weight=700 + italic)", LEFT, y);
+        y += 16;
+        richtext::RectF ri4(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, ri4, BORDER_RED, 1);
+        auto styleVFBoldIt = makeStyle(vfCollection, 24.0f, 700,
+                                       "ja_JP-u-lb-strict", true);
+        renderer.drawParagraph(sampleText, ri4,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styleVFBoldIt, blackFill);
+        y += 48;
+
+        // 日本語テキスト（CJK にはイタリック軸がないので Fake Italic になる）
+        drawSectionLabel(renderer, baseStyle,
+            "  Japanese italic (CJK has no ital axis -> fake italic)", LEFT, y);
+        y += 16;
+        richtext::RectF ri5(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, ri5, BORDER_ORANGE, 1);
+        auto styleJaIt = makeStyle(vfCollection, 24.0f, 400,
+                                   "ja_JP-u-lb-strict", true);
+        renderer.drawParagraph(sampleTextJa, ri5,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styleJaIt, blackFill);
+        y += 48;
+    }
+    y += SECTION;
+
+    //--------------------------------------------------------------------------
+    // 28. 描画同期・保存
+    //--------------------------------------------------------------------------
+    printf("\n28. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP

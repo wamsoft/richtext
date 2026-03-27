@@ -30,6 +30,12 @@ FONTS = [
         "https://github.com/notofonts/latin-greek-cyrillic/releases/download/NotoSans-v2.015/NotoSans-v2.015.zip",
         "NotoSans/unhinted/variable-ttf/NotoSans[wdth,wght].ttf",
     ),
+    # 欧州言語 Italic（Variable Font: wght 100-900, wdth 62.5-100）
+    (
+        "NotoSans-Italic-VariableFont.ttf",
+        "https://github.com/notofonts/latin-greek-cyrillic/releases/download/NotoSans-v2.015/NotoSans-v2.015.zip",
+        "NotoSans/unhinted/variable-ttf/NotoSans-Italic[wdth,wght].ttf",
+    ),
     # 日本語（固定ウェイト）
     (
         "NotoSansJP-Regular.otf",

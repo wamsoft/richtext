@@ -62,20 +62,22 @@ public:
                       int index = 0);
 
     /**
-     * バリアブルフォント登録（ウェイト指定）
+     * バリアブルフォント登録（ウェイト・イタリック指定）
      *
-     * 同じフォントファイルからウェイト別の FontFace を作成して登録する。
-     * minikin のフォント選択で適切なウェイトが選ばれるようになる。
+     * 同じフォントファイルからウェイト/スタイル別の FontFace を作成して登録する。
+     * minikin のフォント選択で適切なウェイト・スタイルが選ばれるようになる。
      *
      * @param path フォントファイルパス
      * @param name 登録名
      * @param weight フォントウェイト（100-900）
+     * @param italic イタリック（true で ital 軸=1 + ITALIC slant 登録）
      * @param index フォントインデックス（OTCの場合）
      * @return 成功時 true
      */
     bool registerVariableFont(const std::string& path,
                               const std::string& name,
                               uint16_t weight,
+                              bool italic = false,
                               int index = 0);
     
     /**

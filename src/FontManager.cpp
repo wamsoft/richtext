@@ -92,6 +92,7 @@ bool FontManager::registerFont(const std::string& path,
 bool FontManager::registerVariableFont(const std::string& path,
                                         const std::string& name,
                                         uint16_t weight,
+                                        bool italic,
                                         int index) {
     if (!initialized_) {
         if (!initialize()) {
@@ -106,15 +107,19 @@ bool FontManager::registerVariableFont(const std::string& path,
             return false;
         }
 
-        // wght 軸を設定
-        fontFace->setVariations({
-            minikin::FontVariation(0x77676874 /* wght */, static_cast<float>(weight))
-        });
+        // wght 軸 + ital 軸を設定
+        std::vector<minikin::FontVariation> variations;
+        variations.emplace_back(0x77676874 /* wght */, static_cast<float>(weight));
+        if (italic) {
+            variations.emplace_back(0x6974616C /* ital */, 1.0f);
+        }
+        fontFace->setVariations(variations);
 
         FontEntry entry;
         entry.face = fontFace;
         entry.weight = weight;
-        entry.slant = minikin::FontStyle::Slant::UPRIGHT;
+        entry.slant = italic ? minikin::FontStyle::Slant::ITALIC
+                             : minikin::FontStyle::Slant::UPRIGHT;
         fonts_[name].push_back(std::move(entry));
         return true;
     } catch (const std::exception& e) {
