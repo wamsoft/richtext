@@ -735,7 +735,13 @@ TextStyle TagParser::applyFontTag(const TextStyle& current,
 
     it = attrs.find("face");
     if (it != attrs.end() && !it->second.empty()) {
-        auto collection = FontManager::instance().createCollection({it->second});
+        auto& fm = FontManager::instance();
+        // 名前付きコレクションを優先参照（フォールバックチェーン付き）
+        auto collection = fm.getCollection(it->second);
+        if (!collection) {
+            // フォールバック: 単一フォント名でコレクション作成
+            collection = fm.createCollection({it->second});
+        }
         if (collection) {
             style.fontCollection = collection;
         }

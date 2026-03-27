@@ -52,7 +52,8 @@ bool FontManager::initialize() {
 }
 
 void FontManager::terminate() {
-    // フォントを先にクリア
+    // コレクション → フォントの順にクリア（参照関係を考慮）
+    collections_.clear();
     fonts_.clear();
     localeIds_.clear();
 
@@ -214,6 +215,29 @@ std::shared_ptr<minikin::FontCollection> FontManager::createCollection(
     }
 
     return std::make_shared<minikin::FontCollection>(families);
+}
+
+bool FontManager::registerCollection(const std::string& collectionName,
+                                     const std::vector<std::string>& fontNames) {
+    auto collection = createCollection(fontNames);
+    if (!collection) {
+        return false;
+    }
+    collections_[collectionName] = collection;
+    return true;
+}
+
+std::shared_ptr<minikin::FontCollection> FontManager::getCollection(
+    const std::string& collectionName) const {
+    auto it = collections_.find(collectionName);
+    if (it == collections_.end()) {
+        return nullptr;
+    }
+    return it->second;
+}
+
+bool FontManager::unregisterCollection(const std::string& collectionName) {
+    return collections_.erase(collectionName) > 0;
 }
 
 uint32_t FontManager::registerLocale(const std::string& locale) {

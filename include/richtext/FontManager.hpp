@@ -138,6 +138,34 @@ public:
      */
     std::shared_ptr<minikin::FontCollection> createCollection(
         const std::vector<std::string>& names);
+
+    /**
+     * 名前付きフォントコレクション登録
+     *
+     * フォント名リストからコレクションを作成し、名前を付けて登録する。
+     * タグパーサーの <font face='...'> で名前指定するとこのコレクションが使用される。
+     *
+     * @param collectionName コレクション名（例: "sans", "serif"）
+     * @param fontNames フォント名のリスト（優先度順、フォールバックチェーン）
+     * @return 成功時 true
+     */
+    bool registerCollection(const std::string& collectionName,
+                            const std::vector<std::string>& fontNames);
+
+    /**
+     * 名前付きフォントコレクション取得
+     * @param collectionName コレクション名
+     * @return コレクション（未登録時 nullptr）
+     */
+    std::shared_ptr<minikin::FontCollection> getCollection(
+        const std::string& collectionName) const;
+
+    /**
+     * 名前付きフォントコレクション解除
+     * @param collectionName コレクション名
+     * @return 成功時 true
+     */
+    bool unregisterCollection(const std::string& collectionName);
     
     // ------------------------------------------------------------------
     // ロケール管理
@@ -179,6 +207,7 @@ private:
         minikin::FontStyle::Slant slant = minikin::FontStyle::Slant::UPRIGHT;
     };
     std::map<std::string, std::vector<FontEntry>> fonts_;
+    std::map<std::string, std::shared_ptr<minikin::FontCollection>> collections_;
     std::map<std::string, uint32_t> localeIds_;
 
     /**

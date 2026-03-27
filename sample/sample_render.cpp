@@ -238,6 +238,12 @@ int main(int argc, char* argv[]) {
         {"NotoColorEmoji.ttf",          "emoji"},
         {"NotoEmoji-Regular.ttf",       "emoji-mono"},
         {"Noto-COLRv1.ttf",             "emoji-colr"},
+        // Serif
+        {"NotoSerif-Regular.ttf",       "serif"},
+        {"NotoSerifJP-Regular.otf",     "serif-ja"},
+        {"NotoSerifKR-Regular.otf",     "serif-ko"},
+        {"NotoSerifSC-Regular.otf",     "serif-zh-hans"},
+        {"NotoSerifTC-Regular.otf",     "serif-zh-hant"},
     };
 
     for (const auto& f : fonts) {
@@ -289,6 +295,13 @@ int main(int argc, char* argv[]) {
     auto koCollection = fm.createCollection({"ko", "sans", "emoji"});
     auto zhCollection = fm.createCollection({"zh-hans", "sans", "emoji"});
     auto multiCollection = fm.createCollection({"sans", "ja", "ko", "zh-hans", "ar", "emoji"});
+    auto serifJaCollection = fm.createCollection({"serif-ja", "serif", "emoji"});
+
+    // 名前付きコレクション登録（タグパーサーの <font face='...'> で使用）
+    fm.registerCollection("sans",  {"ja", "sans", "emoji"});
+    fm.registerCollection("serif", {"serif-ja", "serif", "emoji"});
+    fm.registerCollection("gothic", {"ja", "sans", "emoji"});
+    fm.registerCollection("mincho", {"serif-ja", "serif", "emoji"});
 
     auto makeStyle = [&](std::shared_ptr<minikin::FontCollection> col,
                          float size, uint16_t weight = 400,
@@ -1300,9 +1313,48 @@ int main(int argc, char* argv[]) {
     y += SECTION;
 
     //--------------------------------------------------------------------------
-    // 29. 描画同期・保存
+    // 29. フォントファミリー切替（Sans ↔ Serif）
     //--------------------------------------------------------------------------
-    printf("\n29. Syncing and saving...\n");
+    printf("\n29. Font family switching (Sans vs Serif)...\n");
+    drawSectionLabel(renderer, baseStyle, "[29] Font family switching (Sans vs Serif)", LEFT, y);
+    y += 18;
+
+    {
+        // 直接コレクション指定による比較
+        auto sansStyle = makeStyle(jaCollection, 28.0f);
+        auto serifStyle = makeStyle(serifJaCollection, 28.0f);
+
+        renderer.drawText(utf8ToUtf16("Sans: 文字の表示テスト ABCDEF 12345"),
+                          LEFT, y, sansStyle, blackFill);
+        y += 36;
+        renderer.drawText(utf8ToUtf16("Serif: 文字の表示テスト ABCDEF 12345"),
+                          LEFT, y, serifStyle, blackFill);
+        y += 50;
+
+        // タグパーサー経由でのファミリー切替
+        std::map<std::string, richtext::TextStyle>    styles;
+        std::map<std::string, richtext::Appearance>   appearances;
+        styles["default"]      = makeStyle(jaCollection, 28.0f);
+        appearances["default"] = blackFill;
+
+        richtext::RectF tagRect(LEFT, y, PARA_W, 80.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, tagRect, BORDER_BLUE);
+        renderer.drawStyledText(
+            utf8ToUtf16("ゴシック体と<font face='serif'>明朝体</font>の"
+                        "切替えテスト🎉 "
+                        "<font face='serif'>Serif 明朝🌸</font> "
+                        "Sans ゴシック🚀 12345"),
+            tagRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+    }
+    y += 80 + SECTION;
+
+    //--------------------------------------------------------------------------
+    // 30. 描画同期・保存
+    //--------------------------------------------------------------------------
+    printf("\n30. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP

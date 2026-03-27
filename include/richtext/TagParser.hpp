@@ -16,22 +16,7 @@ namespace richtext {
  * タグパーサー
  * 
  * HTMLライクなタグ付きテキストを解析し、スタイル区間に分解する。
- * 
- * 対応タグ:
- * - <font face='...' size=... weight=...> フォント変更
- * - <color value=0xAARRGGBB> または <color r=... g=... b=... a=...> 色変更
- * - <b> 太字
- * - <i> 斜体
- * - <u> 下線
- * - <s> 取り消し線
- * - <ruby text='...'> ルビ
- * - <sup> 上付き文字
- * - <sub> 下付き文字
- * - <style name='...'> 名前付きスタイル参照
- * - <br> 改行
- * - <sp width=...> スペース
- * - <outline color=... width=...> 縁取り
- * - <shadow color=... x=... y=...> 影
+ * 対応タグ・属性・色形式等の詳細は「タグ仕様.md」を参照。
  */
 class TagParser {
 public:
