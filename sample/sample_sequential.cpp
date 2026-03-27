@@ -263,6 +263,17 @@ int main(int argc, char* argv[]) {
     auto& fm = richtext::FontManager::instance();
     const std::string dataDir = "./data/";
 
+    fm.setFontDataLoader([&dataDir](const std::string& name) -> richtext::FontDataBuffer {
+        std::string path = dataDir + name;
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file) return nullptr;
+        auto size = file.tellg();
+        file.seekg(0, std::ios::beg);
+        auto buffer = std::make_shared<std::vector<uint8_t>>(size);
+        if (!file.read(reinterpret_cast<char*>(buffer->data()), size)) return nullptr;
+        return buffer;
+    });
+
     struct FontEntry { const char* file; const char* name; };
     FontEntry fonts[] = {
         {"NotoSans-Regular.ttf",        "sans"},
@@ -274,8 +285,7 @@ int main(int argc, char* argv[]) {
         {"NotoColorEmoji.ttf",          "emoji"},
     };
     for (const auto& f : fonts) {
-        std::string path = dataDir + f.file;
-        if (fm.registerFont(path, f.name)) {
+        if (fm.registerFont(f.file, f.name)) {
             printf("  [%s] %s\n", f.name, f.file);
         } else {
             fprintf(stderr, "  [%s] FAILED: %s\n", f.name, f.file);

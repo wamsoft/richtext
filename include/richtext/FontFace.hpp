@@ -41,11 +41,24 @@ struct GlyphBitmap {
 class FontFace : public minikin::MinikinFont {
 public:
     /**
-     * コンストラクタ
-     * @param path フォントファイルパス
+     * コンストラクタ（バッファ方式）
+     * @param name フォント名（識別用）
+     * @param data フォントデータバッファ（shared_ptr で寿命管理）
      * @param index フォントインデックス（OTC用）
      */
-    FontFace(const std::string& path, int index = 0);
+    FontFace(const std::string& name,
+             std::shared_ptr<std::vector<uint8_t>> data,
+             int index = 0);
+
+    /**
+     * コンストラクタ（ストリーム方式）
+     * @param name フォント名（識別用）
+     * @param stream FreeType ストリーム（FontFace が所有権を取得）
+     * @param index フォントインデックス（OTC用）
+     */
+    FontFace(const std::string& name,
+             FT_Stream stream,
+             int index = 0);
     
     /**
      * デストラクタ
@@ -99,7 +112,7 @@ public:
     /**
      * フォントパスの取得
      */
-    const std::string& getFontPath() const { return fontPath_; }
+    const std::string& getFontName() const { return fontName_; }
 
     /**
      * FT_Face の取得（内部使用）
@@ -176,13 +189,14 @@ public:
     void releaseFace();
 
 private:
-    std::string fontPath_;
+    std::string fontName_;
     int fontIndex_;
-    
+
     FT_Face ftFace_ = nullptr;
-    void* fontData_ = nullptr;
+    const void* fontData_ = nullptr;
     size_t fontDataSize_ = 0;
-    std::vector<uint8_t> fontDataBuffer_;  // mmap が使えない環境用
+    std::shared_ptr<std::vector<uint8_t>> fontDataBuffer_;  // バッファ方式
+    FT_Stream ftStream_ = nullptr;                          // ストリーム方式
     
     std::vector<minikin::FontVariation> axes_;
     bool isVariable_ = false;

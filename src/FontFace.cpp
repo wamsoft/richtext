@@ -10,7 +10,6 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
-#include <fstream>
 #include <vector>
 #include <functional>
 
@@ -66,80 +65,106 @@ FT_Error loadGlyph(uint32_t glyphId, float size, FT_Face face,
     return FT_Err_Ok;
 }
 
-// ファイル全体をメモリに読み込む
-std::vector<uint8_t> readWholeFile(const std::string& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file) {
-        return {};
-    }
-    
-    std::streamsize size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    
-    std::vector<uint8_t> buffer(size);
-    if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) {
-        return {};
-    }
-    
-    return buffer;
-}
-
 } // anonymous namespace
+
+// ----------------------------------------------------------------------------
+// 共通初期化（バリアブルフォント軸情報の取得）
+// ----------------------------------------------------------------------------
+
+static void initVariableAxes(FT_Face face, FT_Library ftLib,
+                             std::vector<minikin::FontVariation>& axes,
+                             bool& isVariable,
+                             bool& hasWdthAxis, float& wdthMin,
+                             float& wdthMax, float& wdthDefault) {
+    FT_MM_Var* mmVar = nullptr;
+    if (FT_Get_MM_Var(face, &mmVar) == 0 && mmVar) {
+        isVariable = true;
+        for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
+            FT_Var_Axis& axis = mmVar->axis[i];
+            float defVal = axis.def / 65536.0f;
+            axes.emplace_back(static_cast<minikin::AxisTag>(axis.tag), defVal);
+            if (axis.tag == FT_MAKE_TAG('w','d','t','h')) {
+                hasWdthAxis = true;
+                wdthMin = axis.minimum / 65536.0f;
+                wdthMax = axis.maximum / 65536.0f;
+                wdthDefault = defVal;
+            }
+        }
+        FT_Done_MM_Var(ftLib, mmVar);
+    }
+}
 
 // ----------------------------------------------------------------------------
 // FontFace 実装
 // ----------------------------------------------------------------------------
 
-FontFace::FontFace(const std::string& path, int index)
+FontFace::FontFace(const std::string& name,
+                   std::shared_ptr<std::vector<uint8_t>> data,
+                   int index)
     : minikin::MinikinFont(sUniqueIdCounter++)
-    , fontPath_(path)
+    , fontName_(name)
     , fontIndex_(index)
-    , ftFace_(nullptr)
-    , fontData_(nullptr)
-    , fontDataSize_(0)
 {
-    // フォントファイルをメモリに読み込む
-    fontDataBuffer_ = readWholeFile(path);
-    if (fontDataBuffer_.empty()) {
-        throw std::runtime_error("Failed to read font file: " + path);
+    if (!data || data->empty()) {
+        throw std::runtime_error("Empty font data for: " + name);
     }
-    
-    fontData_ = fontDataBuffer_.data();
-    fontDataSize_ = fontDataBuffer_.size();
-    
-    // FreeType でフォントを開く
+
+    fontDataBuffer_ = std::move(data);
+    fontData_ = fontDataBuffer_->data();
+    fontDataSize_ = fontDataBuffer_->size();
+
     FT_Library ftLib = FontManager::instance().getFTLibrary();
     if (!ftLib) {
         throw std::runtime_error("FreeType library not initialized");
     }
-    
-    FT_Open_Args args;
+
+    FT_Open_Args args = {};
     args.flags = FT_OPEN_MEMORY;
     args.memory_base = static_cast<const FT_Byte*>(fontData_);
     args.memory_size = fontDataSize_;
-    
+
     FT_Error err = FT_Open_Face(ftLib, &args, index, &ftFace_);
     if (err != 0) {
-        throw std::runtime_error("Failed to open font face: " + path);
+        throw std::runtime_error("Failed to open font face: " + name);
     }
 
-    // バリアブルフォントの軸情報を取得
-    FT_MM_Var* mmVar = nullptr;
-    if (FT_Get_MM_Var(ftFace_, &mmVar) == 0 && mmVar) {
-        isVariable_ = true;
-        for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
-            FT_Var_Axis& axis = mmVar->axis[i];
-            float defVal = axis.def / 65536.0f;
-            axes_.emplace_back(static_cast<minikin::AxisTag>(axis.tag), defVal);
-            if (axis.tag == FT_MAKE_TAG('w','d','t','h')) {
-                hasWdthAxis_ = true;
-                wdthMin_ = axis.minimum / 65536.0f;
-                wdthMax_ = axis.maximum / 65536.0f;
-                wdthDefault_ = defVal;
-            }
-        }
-        FT_Done_MM_Var(ftLib, mmVar);
+    initVariableAxes(ftFace_, ftLib, axes_, isVariable_,
+                     hasWdthAxis_, wdthMin_, wdthMax_, wdthDefault_);
+}
+
+FontFace::FontFace(const std::string& name,
+                   FT_Stream stream,
+                   int index)
+    : minikin::MinikinFont(sUniqueIdCounter++)
+    , fontName_(name)
+    , fontIndex_(index)
+    , ftStream_(stream)
+{
+    if (!stream) {
+        throw std::runtime_error("Null FT_Stream for: " + name);
     }
+
+    FT_Library ftLib = FontManager::instance().getFTLibrary();
+    if (!ftLib) {
+        throw std::runtime_error("FreeType library not initialized");
+    }
+
+    FT_Open_Args args = {};
+    args.flags = FT_OPEN_STREAM;
+    args.stream = stream;
+
+    FT_Error err = FT_Open_Face(ftLib, &args, index, &ftFace_);
+    if (err != 0) {
+        throw std::runtime_error("Failed to open font face (stream): " + name);
+    }
+
+    // ストリーム方式でも minikin/harfbuzz 用にフォントデータを参照可能にする
+    // FT_Face が内部的にストリームを保持するので、テーブルアクセスは可能
+    fontData_ = nullptr;
+    fontDataSize_ = stream->size;
+
+    initVariableAxes(ftFace_, ftLib, axes_, isVariable_,
+                     hasWdthAxis_, wdthMin_, wdthMax_, wdthDefault_);
 }
 
 FontFace::~FontFace() {
@@ -150,6 +175,11 @@ void FontFace::releaseFace() {
     if (ftFace_) {
         FT_Done_Face(ftFace_);
         ftFace_ = nullptr;
+    }
+    // ストリームは FT_Done_Face 後に解放
+    if (ftStream_) {
+        free(ftStream_);
+        ftStream_ = nullptr;
     }
 }
 

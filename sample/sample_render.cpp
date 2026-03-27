@@ -207,6 +207,22 @@ int main(int argc, char* argv[]) {
     // data/ ディレクトリのパス（トップディレクトリから実行する前提）
     const std::string dataDir = "./data/";
 
+    // バッファローダー登録（ファイル名 → data/ ディレクトリから読み込み）
+    fm.setFontDataLoader([&dataDir](const std::string& name) -> richtext::FontDataBuffer {
+        std::string path = dataDir + name;
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file) {
+            return nullptr;
+        }
+        auto size = file.tellg();
+        file.seekg(0, std::ios::beg);
+        auto buffer = std::make_shared<std::vector<uint8_t>>(size);
+        if (!file.read(reinterpret_cast<char*>(buffer->data()), size)) {
+            return nullptr;
+        }
+        return buffer;
+    });
+
     struct FontEntry {
         const char* file;
         const char* name;
@@ -225,8 +241,7 @@ int main(int argc, char* argv[]) {
     };
 
     for (const auto& f : fonts) {
-        std::string path = dataDir + f.file;
-        if (fm.registerFont(path, f.name)) {
+        if (fm.registerFont(f.file, f.name)) {
             printf("   [%s] %s\n", f.name, f.file);
         } else {
             fprintf(stderr, "   [%s] FAILED: %s\n", f.name, f.file);
@@ -235,20 +250,17 @@ int main(int argc, char* argv[]) {
 
     // Variable Font をウェイト別・スタイル別に登録
     {
-        const std::string vfSans       = dataDir + "NotoSans-VariableFont.ttf";
-        const std::string vfSansItalic = dataDir + "NotoSans-Italic-VariableFont.ttf";
-        const std::string vfJP         = dataDir + "NotoSansJP-VariableFont.ttf";
         uint16_t weights[] = {100, 300, 400, 500, 700, 900};
         for (uint16_t w : weights) {
             // Upright
-            if (fm.registerVariableFont(vfSans, "sans-vf", w)) {
+            if (fm.registerVariableFont("NotoSans-VariableFont.ttf", "sans-vf", w)) {
                 printf("   [sans-vf w=%d] NotoSans-VariableFont.ttf\n", w);
             }
             // Italic（欧文のみ — CJK にイタリック軸はない）
-            if (fm.registerVariableFont(vfSansItalic, "sans-vf", w, true)) {
+            if (fm.registerVariableFont("NotoSans-Italic-VariableFont.ttf", "sans-vf", w, true)) {
                 printf("   [sans-vf w=%d italic] NotoSans-Italic-VariableFont.ttf\n", w);
             }
-            if (fm.registerVariableFont(vfJP, "ja-vf", w)) {
+            if (fm.registerVariableFont("NotoSansJP-VariableFont.ttf", "ja-vf", w)) {
                 printf("   [ja-vf w=%d] NotoSansJP-VariableFont.ttf\n", w);
             }
         }

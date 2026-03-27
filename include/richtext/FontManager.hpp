@@ -5,6 +5,7 @@
 #include <memory>
 #include <map>
 #include <vector>
+#include <functional>
 
 // FreeType
 #include <ft2build.h>
@@ -19,8 +20,28 @@ namespace richtext {
 class FontFace;
 
 /**
+ * フォントデータバッファ型
+ */
+using FontDataBuffer = std::shared_ptr<std::vector<uint8_t>>;
+
+/**
+ * フォントデータローダー（バッファ方式）
+ * フォント名を受け取り、フォントデータ全体を shared_ptr<vector<uint8_t>> で返す。
+ * 読み込み失敗時は nullptr を返す。
+ */
+using FontDataLoader = std::function<FontDataBuffer(const std::string& name)>;
+
+/**
+ * FreeType ストリームローダー
+ * フォント名を受け取り、FT_Stream を返す。
+ * 呼び出し元が FT_Stream の寿命管理を行う。
+ * 読み込み失敗時は nullptr を返す。
+ */
+using FontStreamLoader = std::function<FT_Stream(const std::string& name)>;
+
+/**
  * フォント管理クラス（シングルトン）
- * 
+ *
  * フォントの登録・解除、FontCollection の作成、ロケール管理を行う。
  */
 class FontManager {
@@ -29,13 +50,13 @@ public:
      * シングルトンインスタンス取得
      */
     static FontManager& instance();
-    
+
     /**
      * 初期化（FreeType ライブラリの初期化）
      * @return 成功時 true
      */
     bool initialize();
-    
+
     /**
      * 終了処理
      */
@@ -45,19 +66,35 @@ public:
      * FreeType ライブラリの取得
      */
     FT_Library getFTLibrary() const { return ftLibrary_; }
-    
+
+    // ------------------------------------------------------------------
+    // ローダー登録
+    // ------------------------------------------------------------------
+
+    /**
+     * フォントデータローダー（バッファ方式）を登録
+     * ストリームローダーより優先される。
+     */
+    void setFontDataLoader(FontDataLoader loader);
+
+    /**
+     * FreeType ストリームローダーを登録
+     * バッファローダーが未登録、または nullptr を返した場合に使用される。
+     */
+    void setFontStreamLoader(FontStreamLoader loader);
+
     // ------------------------------------------------------------------
     // フォント管理
     // ------------------------------------------------------------------
-    
+
     /**
      * フォント登録
-     * @param path フォントファイルパス
-     * @param name 登録名
+     * @param fileName フォントファイル名（ローダーに渡される）
+     * @param name 登録名（createCollection 等で使用）
      * @param index フォントインデックス（OTCの場合）
      * @return 成功時 true
      */
-    bool registerFont(const std::string& path,
+    bool registerFont(const std::string& fileName,
                       const std::string& name,
                       int index = 0);
 
@@ -67,14 +104,14 @@ public:
      * 同じフォントファイルからウェイト/スタイル別の FontFace を作成して登録する。
      * minikin のフォント選択で適切なウェイト・スタイルが選ばれるようになる。
      *
-     * @param path フォントファイルパス
-     * @param name 登録名
+     * @param fileName フォントファイル名（ローダーに渡される）
+     * @param name 登録名（createCollection 等で使用）
      * @param weight フォントウェイト（100-900）
      * @param italic イタリック（true で ital 軸=1 + ITALIC slant 登録）
      * @param index フォントインデックス（OTCの場合）
      * @return 成功時 true
      */
-    bool registerVariableFont(const std::string& path,
+    bool registerVariableFont(const std::string& fileName,
                               const std::string& name,
                               uint16_t weight,
                               bool italic = false,
@@ -132,7 +169,10 @@ private:
     
     FT_Library ftLibrary_ = nullptr;
     bool initialized_ = false;
-    
+
+    FontDataLoader dataLoader_;
+    FontStreamLoader streamLoader_;
+
     struct FontEntry {
         std::shared_ptr<FontFace> face;
         uint16_t weight = 400;
@@ -140,6 +180,11 @@ private:
     };
     std::map<std::string, std::vector<FontEntry>> fonts_;
     std::map<std::string, uint32_t> localeIds_;
+
+    /**
+     * ローダーを使って FontFace を生成
+     */
+    std::shared_ptr<FontFace> loadFontFace(const std::string& name, int index);
 };
 
 } // namespace richtext

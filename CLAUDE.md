@@ -46,7 +46,7 @@ cd build/x64-windows/Release
 
 ### データフロー
 
-1. `FontManager` がフォントを FreeType で読み込み、`FontFace`（`minikin::MinikinFont` 継承）として管理
+1. 利用側が `FontManager` にローダー関数を登録し、`registerFont()` でフォントを登録。ローダーがフォントデータを返し、`FontFace`（`minikin::MinikinFont` 継承）として管理
 2. `TextLayout` / `ParagraphLayout` が minikin でグリフ配置を計算
 3. `GlyphRenderer` が `FontFace::getGlyphPath()` で FreeType アウトラインを取得し thorvg パスに変換して描画
 4. カラー絵文字は `FontFace::getGlyphBitmap()` でビットマップとして取得（パスとは別処理）

@@ -13,6 +13,7 @@
 #include <minikin/LocaleList.h>
 
 #include <cstdio>
+#include <stdexcept>
 
 namespace richtext {
 
@@ -54,16 +55,48 @@ void FontManager::terminate() {
     // フォントを先にクリア
     fonts_.clear();
     localeIds_.clear();
-    
+
+    // ローダーもクリア
+    dataLoader_ = nullptr;
+    streamLoader_ = nullptr;
+
     if (ftLibrary_) {
         FT_Done_FreeType(ftLibrary_);
         ftLibrary_ = nullptr;
     }
-    
+
     initialized_ = false;
 }
 
-bool FontManager::registerFont(const std::string& path,
+void FontManager::setFontDataLoader(FontDataLoader loader) {
+    dataLoader_ = std::move(loader);
+}
+
+void FontManager::setFontStreamLoader(FontStreamLoader loader) {
+    streamLoader_ = std::move(loader);
+}
+
+std::shared_ptr<FontFace> FontManager::loadFontFace(const std::string& fileName, int index) {
+    // バッファローダー優先
+    if (dataLoader_) {
+        auto data = dataLoader_(fileName);
+        if (data && !data->empty()) {
+            return std::make_shared<FontFace>(fileName, std::move(data), index);
+        }
+    }
+
+    // ストリームローダーにフォールバック
+    if (streamLoader_) {
+        FT_Stream stream = streamLoader_(fileName);
+        if (stream) {
+            return std::make_shared<FontFace>(fileName, stream, index);
+        }
+    }
+
+    throw std::runtime_error("No font loader registered, or loader failed for: " + fileName);
+}
+
+bool FontManager::registerFont(const std::string& fileName,
                                const std::string& name,
                                int index) {
     if (!initialized_) {
@@ -76,7 +109,7 @@ bool FontManager::registerFont(const std::string& path,
     fonts_.erase(name);
 
     try {
-        auto fontFace = std::make_shared<FontFace>(path, index);
+        auto fontFace = loadFontFace(fileName, index);
         FontEntry entry;
         entry.face = fontFace;
         entry.weight = 400;
@@ -89,7 +122,7 @@ bool FontManager::registerFont(const std::string& path,
     }
 }
 
-bool FontManager::registerVariableFont(const std::string& path,
+bool FontManager::registerVariableFont(const std::string& fileName,
                                         const std::string& name,
                                         uint16_t weight,
                                         bool italic,
@@ -101,9 +134,9 @@ bool FontManager::registerVariableFont(const std::string& path,
     }
 
     try {
-        auto fontFace = std::make_shared<FontFace>(path, index);
+        auto fontFace = loadFontFace(fileName, index);
         if (!fontFace->isVariableFont()) {
-            fprintf(stderr, "Font '%s' is not a variable font\n", name.c_str());
+            fprintf(stderr, "Font '%s' is not a variable font\n", fileName.c_str());
             return false;
         }
 

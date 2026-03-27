@@ -3,6 +3,7 @@
 #include "richtext/TextLayout.hpp"
 #include <minikin/Layout.h>
 #include <cstdio>
+#include <fstream>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -12,6 +13,17 @@ int main() {
     fprintf(stderr, "[1] start\n");
 
     auto& fm = richtext::FontManager::instance();
+
+    // フルパスをそのまま開くローダー
+    fm.setFontDataLoader([](const std::string& name) -> richtext::FontDataBuffer {
+        std::ifstream file(name, std::ios::binary | std::ios::ate);
+        if (!file) return nullptr;
+        auto size = file.tellg();
+        file.seekg(0, std::ios::beg);
+        auto buffer = std::make_shared<std::vector<uint8_t>>(size);
+        if (!file.read(reinterpret_cast<char*>(buffer->data()), size)) return nullptr;
+        return buffer;
+    });
 
     fm.registerFont("C:/Windows/Fonts/msgothic.ttc", "ja");
     fm.registerFont("C:/Windows/Fonts/arial.ttf", "ar");
