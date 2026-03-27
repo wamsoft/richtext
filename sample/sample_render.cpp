@@ -417,7 +417,10 @@ int main(int argc, char* argv[]) {
         renderer.drawStyledText(
             utf8ToUtf16("<b>太字</b>と<i>斜体</i>と"
                         "<color value=0xFFCC0000>赤色</color>と"
-                        "<font size=36>大きな</font>テキスト"),
+                        "<font size=36>大きな</font>テキスト<br>"
+                        "<u>下線</u>と<s>取り消し線</s>と"
+                        "<u><s>両方</s></u>と"
+                        "<color value=0xFFCC0000><u>赤い下線</u></color>"),
             tagRect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,

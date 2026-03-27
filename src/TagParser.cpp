@@ -427,8 +427,9 @@ bool TagParser::parseTag(
     Appearance newAppearance = state.currentAppearance;
     bool hasRuby = false;
     std::u16string rubyText;
-    bool hasUnderline = false;
-    bool hasStrikethrough = false;
+    // 親コンテキストから下線・取り消し線を継承
+    bool hasUnderline = !state.styleStack.empty() ? state.styleStack.top().hasUnderline : false;
+    bool hasStrikethrough = !state.styleStack.empty() ? state.styleStack.top().hasStrikethrough : false;
     bool isSuperscript = false;
     bool isSubscript = false;
     float yOffset = 0.0f;

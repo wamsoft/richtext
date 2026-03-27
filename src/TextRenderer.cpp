@@ -389,6 +389,30 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
 
             RectF segBounds = drawLayout(sl.layout, curX, drawY, span.appearance);
 
+            // 下線・取り消し線の描画
+            if (span.hasUnderline || span.hasStrikethrough) {
+                // Appearance のメイン Fill から色を取得
+                uint32_t lineColor = 0xFF000000;  // デフォルト: 黒
+                for (const auto& ds : span.appearance.getStyles()) {
+                    if (ds.type == DrawStyle::Type::Fill &&
+                        ds.offsetX == 0.0f && ds.offsetY == 0.0f) {
+                        lineColor = ds.getColor();
+                    }
+                }
+                float lineThickness = std::max(1.0f, span.style.fontSize / 18.0f);
+
+                if (span.hasUnderline) {
+                    float underlineY = drawY + line.descent * 0.3f;
+                    drawRect(curX, underlineY, sl.measuredWidth, lineThickness,
+                             lineColor, 0, 0);
+                }
+                if (span.hasStrikethrough) {
+                    float strikeY = drawY + line.ascent * 0.35f;
+                    drawRect(curX, strikeY, sl.measuredWidth, lineThickness,
+                             lineColor, 0, 0);
+                }
+            }
+
             // ルビ描画: ベーステキストの上に小さいサイズで中央揃え配置
             // ルビ描画: ベーステキストの上に小さいサイズで中央揃え配置
             if (span.hasRuby && !span.rubyText.empty()) {
