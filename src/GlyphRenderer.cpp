@@ -6,6 +6,8 @@
 
 #include "richtext/GlyphRenderer.hpp"
 
+#include <algorithm>
+
 namespace richtext {
 
 //------------------------------------------------------------------------------
@@ -30,13 +32,29 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
     if (!canvas_ || !glyph.font) {
         return;
     }
-    
+
     // グリフ位置
     float glyphX = x + glyph.x;
     float glyphY = y + glyph.y;
-    
+
     // FontFace からグリフパスまたはビットマップを取得
     const FontFace* font = glyph.font;
+
+    // フォント幅の処理: wdth 軸 + フェイク水平スケール
+    float fakeScaleX = 1.0f;
+    if (style.fontWidth != 100.0f) {
+        float minW, maxW;
+        if (font->getWidthAxisRange(minW, maxW)) {
+            // wdth 軸あり: 軸範囲にクランプして適用
+            float clampedWidth = std::clamp(style.fontWidth, minW, maxW);
+            font->applyWidth(clampedWidth);
+            // 軸でカバーできない残り分をフェイクスケールで補う
+            fakeScaleX = style.fontWidth / clampedWidth;
+        } else {
+            // wdth 軸なし: 全てフェイクスケール
+            fakeScaleX = style.fontWidth / 100.0f;
+        }
+    }
 
     // カラー絵文字判定
     if (font->isColorGlyph(glyph.glyphId)) {
@@ -85,7 +103,7 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
 
         // ベクターパス描画
         if (useCache_) {
-            auto key = makeKey(font, glyph.glyphId, style.fontSize);
+            auto key = makeKey(font, glyph.glyphId, style.fontSize, style.fontWidth);
             auto it = pathCache_.find(key);
             if (it == pathCache_.end()) {
                 CachedPath cached;
@@ -100,14 +118,14 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
             }
             if (it != pathCache_.end()) {
                 renderPath(it->second.commands, it->second.points,
-                           glyphX, glyphY, appearance, skewX, fakeBoldStroke);
+                           glyphX, glyphY, appearance, skewX, fakeBoldStroke, fakeScaleX);
             }
         } else {
             std::vector<tvg::PathCommand> commands;
             std::vector<tvg::Point> points;
             if (font->getGlyphPath(glyph.glyphId, style.fontSize, commands, points)) {
                 renderPath(commands, points,
-                           glyphX, glyphY, appearance, skewX, fakeBoldStroke);
+                           glyphX, glyphY, appearance, skewX, fakeBoldStroke, fakeScaleX);
             }
         }
     }
@@ -135,11 +153,13 @@ void GlyphRenderer::clearCache() {
 
 GlyphRenderer::GlyphCacheKey GlyphRenderer::makeKey(const FontFace* font,
                                                       uint32_t glyphId,
-                                                      float fontSize) const {
+                                                      float fontSize,
+                                                      float fontWidth) const {
     GlyphCacheKey key;
     key.fontPtr = reinterpret_cast<uintptr_t>(font);
     key.glyphId = glyphId;
     key.fontSizeQ = static_cast<uint32_t>(fontSize * 64.0f + 0.5f);
+    key.fontWidthQ = static_cast<uint32_t>(fontWidth * 64.0f + 0.5f);
     return key;
 }
 
@@ -159,7 +179,8 @@ void GlyphRenderer::renderPath(const std::vector<tvg::PathCommand>& commands,
                                float x, float y,
                                const Appearance& appearance,
                                float skewX,
-                               float fakeBoldStroke) {
+                               float fakeBoldStroke,
+                               float scaleX) {
     if (commands.empty() || !canvas_) {
         return;
     }
@@ -169,9 +190,13 @@ void GlyphRenderer::renderPath(const std::vector<tvg::PathCommand>& commands,
         tvg::Shape* shape = tvg::Shape::gen();
         if (!shape) continue;
 
-        // パスを設定（コピーして座標をオフセット + シアー変換）
+        // パスを設定（コピーして座標をオフセット + シアー/スケール変換）
         std::vector<tvg::Point> offsetPoints = points;
         for (auto& pt : offsetPoints) {
+            // フェイク幅: X方向にスケール
+            if (scaleX != 1.0f) {
+                pt.x *= scaleX;
+            }
             // フェイクイタリック: X方向にシアー変換（ベースライン基準）
             // pt.y はベースライン(0)からの相対座標で、上方向が負
             if (skewX != 0.0f) {

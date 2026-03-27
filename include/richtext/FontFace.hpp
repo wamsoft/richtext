@@ -121,7 +121,23 @@ public:
      *   'ital' (italic): 0 or 1
      */
     void setVariations(const std::vector<minikin::FontVariation>& variations);
-    
+
+    /**
+     * wdth 軸の範囲を取得
+     * @param minWidth 最小値（出力）
+     * @param maxWidth 最大値（出力）
+     * @return wdth 軸が存在する場合 true
+     */
+    bool getWidthAxisRange(float& minWidth, float& maxWidth) const;
+
+    /**
+     * wdth 軸の値を一時的に設定する（描画前に呼び出し）
+     * @param width 幅（パーセント、100.0 = 通常）
+     *
+     * 他の軸（wght 等）は setVariations() で設定済みの値を維持する。
+     */
+    void applyWidth(float width) const;
+
     /**
      * グリフパスの取得（thorvg用）
      * @param glyphId グリフID
@@ -170,6 +186,10 @@ private:
     
     std::vector<minikin::FontVariation> axes_;
     bool isVariable_ = false;
+    bool hasWdthAxis_ = false;
+    float wdthMin_ = 100.0f;
+    float wdthMax_ = 100.0f;
+    float wdthDefault_ = 100.0f;
     
     /**
      * FreeType アウトラインを thorvg パスに変換

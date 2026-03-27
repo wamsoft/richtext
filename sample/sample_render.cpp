@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 6700;
+    const int HEIGHT = 7400;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -1208,9 +1208,89 @@ int main(int argc, char* argv[]) {
     y += SECTION;
 
     //--------------------------------------------------------------------------
-    // 28. 描画同期・保存
+    // 28. Width 比較（Variable Font wdth 軸 vs Fake Width）
     //--------------------------------------------------------------------------
-    printf("\n28. Syncing and saving...\n");
+    printf("\n28. Width comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[28] Font width comparison", LEFT, y);
+    y += 32;
+    {
+        auto staticCollection = fm.createCollection({"sans", "ja", "emoji"});
+        auto vfCollection = fm.createCollection({"sans-vf", "ja-vf", "emoji"});
+
+        auto sampleTextEn = utf8ToUtf16(
+            u8"Width test — The quick brown fox");
+        auto sampleTextJa = utf8ToUtf16(
+            u8"幅テスト — 日本語の文字幅 ABC 012");
+
+        float widths[] = { 40.0f, 80.0f, 100.0f, 150.0f };
+        const char* widthLabels[] = { "40%", "80%", "100%", "150%" };
+
+        // Variable Font（wdth 軸あり: NotoSans VF wdth 62.5-100）
+        drawSectionLabel(renderer, baseStyle,
+            "  Variable Font (wdth axis: 62.5-100)", LEFT, y);
+        y += 16;
+        for (int i = 0; i < 4; ++i) {
+            char label[64];
+            snprintf(label, sizeof(label), "    fontWidth=%s:", widthLabels[i]);
+            drawSectionLabel(renderer, baseStyle, label, LEFT, y);
+            y += 16;
+
+            richtext::RectF re(LEFT, y, PARA_W, 36.0f);
+            drawRectF(buffer.data(), WIDTH, HEIGHT, re, BORDER_ORANGE, 1);
+            auto style = makeStyle(vfCollection, 22.0f);
+            style.fontWidth = widths[i];
+            renderer.drawParagraph(sampleTextEn, re,
+                richtext::ParagraphLayout::HAlign::Left,
+                richtext::ParagraphLayout::VAlign::Top,
+                style, blackFill);
+            y += 40;
+
+            richtext::RectF rj(LEFT, y, PARA_W, 36.0f);
+            drawRectF(buffer.data(), WIDTH, HEIGHT, rj, BORDER_ORANGE, 1);
+            renderer.drawParagraph(sampleTextJa, rj,
+                richtext::ParagraphLayout::HAlign::Left,
+                richtext::ParagraphLayout::VAlign::Top,
+                style, blackFill);
+            y += 44;
+        }
+
+        y += 8;
+
+        // 固定フォント（wdth 軸なし → 全てフェイクスケール）
+        drawSectionLabel(renderer, baseStyle,
+            "  Static font (no wdth axis -> fake scaleX)", LEFT, y);
+        y += 16;
+        for (int i = 0; i < 4; ++i) {
+            char label[64];
+            snprintf(label, sizeof(label), "    fontWidth=%s:", widthLabels[i]);
+            drawSectionLabel(renderer, baseStyle, label, LEFT, y);
+            y += 16;
+
+            richtext::RectF re(LEFT, y, PARA_W, 36.0f);
+            drawRectF(buffer.data(), WIDTH, HEIGHT, re, BORDER_ORANGE, 1);
+            auto style = makeStyle(staticCollection, 22.0f);
+            style.fontWidth = widths[i];
+            renderer.drawParagraph(sampleTextEn, re,
+                richtext::ParagraphLayout::HAlign::Left,
+                richtext::ParagraphLayout::VAlign::Top,
+                style, blackFill);
+            y += 40;
+
+            richtext::RectF rj(LEFT, y, PARA_W, 36.0f);
+            drawRectF(buffer.data(), WIDTH, HEIGHT, rj, BORDER_ORANGE, 1);
+            renderer.drawParagraph(sampleTextJa, rj,
+                richtext::ParagraphLayout::HAlign::Left,
+                richtext::ParagraphLayout::VAlign::Top,
+                style, blackFill);
+            y += 44;
+        }
+    }
+    y += SECTION;
+
+    //--------------------------------------------------------------------------
+    // 29. 描画同期・保存
+    //--------------------------------------------------------------------------
+    printf("\n29. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP

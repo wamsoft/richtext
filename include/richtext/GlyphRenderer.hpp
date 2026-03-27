@@ -89,14 +89,16 @@ private:
     // グリフキャッシュ
     // ------------------------------------------------------------------
 
-    // キャッシュキー: フォントポインタ + グリフID + フォントサイズ
+    // キャッシュキー: フォントポインタ + グリフID + フォントサイズ + フォント幅
     struct GlyphCacheKey {
         uintptr_t fontPtr;
         uint32_t glyphId;
-        uint32_t fontSizeQ;  // fontSize * 64 を uint32_t に変換（固定小数点）
+        uint32_t fontSizeQ;   // fontSize * 64 を uint32_t に変換（固定小数点）
+        uint32_t fontWidthQ;  // fontWidth * 64 を uint32_t に変換（固定小数点）
 
         bool operator==(const GlyphCacheKey& o) const {
-            return fontPtr == o.fontPtr && glyphId == o.glyphId && fontSizeQ == o.fontSizeQ;
+            return fontPtr == o.fontPtr && glyphId == o.glyphId
+                && fontSizeQ == o.fontSizeQ && fontWidthQ == o.fontWidthQ;
         }
     };
 
@@ -105,6 +107,7 @@ private:
             size_t h = k.fontPtr;
             h ^= static_cast<size_t>(k.glyphId) * 2654435761u;
             h ^= static_cast<size_t>(k.fontSizeQ) * 40503u;
+            h ^= static_cast<size_t>(k.fontWidthQ) * 16777619u;
             return h;
         }
     };
@@ -121,7 +124,7 @@ private:
     size_t cacheUsedBytes_ = 0;
     size_t cacheMaxBytes_ = 0;  // 0 = 無制限
 
-    GlyphCacheKey makeKey(const FontFace* font, uint32_t glyphId, float fontSize) const;
+    GlyphCacheKey makeKey(const FontFace* font, uint32_t glyphId, float fontSize, float fontWidth = 100.0f) const;
 
     // キャッシュサイズ超過チェック・クリア
     void evictCacheIfNeeded();
@@ -134,7 +137,8 @@ private:
                     float x, float y,
                     const Appearance& appearance,
                     float skewX = 0.0f,
-                    float fakeBoldStroke = 0.0f);
+                    float fakeBoldStroke = 0.0f,
+                    float scaleX = 1.0f);
 
     /**
      * ビットマップ描画（カラー絵文字）

@@ -728,6 +728,11 @@ TextStyle TagParser::applyFontTag(const TextStyle& current,
         style.letterSpacing = parseFloat(it->second);
     }
 
+    it = attrs.find("width");
+    if (it != attrs.end()) {
+        style.fontWidth = parseFloat(it->second);
+    }
+
     it = attrs.find("face");
     if (it != attrs.end() && !it->second.empty()) {
         auto collection = FontManager::instance().createCollection({it->second});

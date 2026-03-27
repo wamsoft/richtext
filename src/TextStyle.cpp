@@ -20,6 +20,9 @@ void TextStyle::applyTo(minikin::MinikinPaint& paint) const {
     // 字間の設定（scaleXが0だとletterSpacingが効かない）
     paint.scaleX = scaleX;
     paint.letterSpacing = letterSpacing;
+
+    // フォント幅（GetHorizontalAdvance 内で wdth 軸 + fakeScaleX として処理）
+    paint.fontWidth = fontWidth;
     paint.wordSpacing = wordSpacing;
     paint.skewX = skewX;
 }

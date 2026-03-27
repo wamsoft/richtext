@@ -56,6 +56,14 @@ struct TextStyle {
     uint32_t localeId = 0;
     
     /**
+     * フォント幅（パーセント、100.0 = 通常幅）
+     * 50=ultra-condensed, 75=condensed, 100=normal, 125=expanded, 150=extra-expanded
+     * バリアブルフォントの wdth 軸がある場合はそれを使用し、
+     * ない場合や範囲外の場合は scaleX で疑似対応する。
+     */
+    float fontWidth = 100.0f;
+
+    /**
      * 水平スケール（通常 1.0）
      */
     float scaleX = 1.0f;

@@ -129,10 +129,14 @@ FontFace::FontFace(const std::string& path, int index)
         isVariable_ = true;
         for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
             FT_Var_Axis& axis = mmVar->axis[i];
-            axes_.emplace_back(
-                static_cast<minikin::AxisTag>(axis.tag),
-                axis.def / 65536.0f  // 16.16 固定小数点 → float
-            );
+            float defVal = axis.def / 65536.0f;
+            axes_.emplace_back(static_cast<minikin::AxisTag>(axis.tag), defVal);
+            if (axis.tag == FT_MAKE_TAG('w','d','t','h')) {
+                hasWdthAxis_ = true;
+                wdthMin_ = axis.minimum / 65536.0f;
+                wdthMax_ = axis.maximum / 65536.0f;
+                wdthDefault_ = defVal;
+            }
         }
         FT_Done_MM_Var(ftLib, mmVar);
     }
@@ -180,27 +184,73 @@ void FontFace::setVariations(const std::vector<minikin::FontVariation>& variatio
     FT_Done_MM_Var(ftLib, mmVar);
 }
 
+bool FontFace::getWidthAxisRange(float& minWidth, float& maxWidth) const {
+    if (!hasWdthAxis_) return false;
+    minWidth = wdthMin_;
+    maxWidth = wdthMax_;
+    return true;
+}
+
+void FontFace::applyWidth(float width) const {
+    if (!ftFace_ || !isVariable_) return;
+
+    // 現在の座標を取得して wdth 軸のみ変更
+    FT_MM_Var* mmVar = nullptr;
+    if (FT_Get_MM_Var(ftFace_, &mmVar) != 0 || !mmVar) return;
+
+    std::vector<FT_Fixed> coords(mmVar->num_axis);
+    FT_Get_Var_Design_Coordinates(ftFace_, mmVar->num_axis, coords.data());
+
+    for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
+        if (mmVar->axis[i].tag == FT_MAKE_TAG('w','d','t','h')) {
+            // 軸の範囲にクランプ
+            float clamped = std::clamp(width,
+                mmVar->axis[i].minimum / 65536.0f,
+                mmVar->axis[i].maximum / 65536.0f);
+            coords[i] = static_cast<FT_Fixed>(clamped * 65536.0f);
+            break;
+        }
+    }
+
+    FT_Set_Var_Design_Coordinates(ftFace_, mmVar->num_axis, coords.data());
+
+    FT_Library ftLib = FontManager::instance().getFTLibrary();
+    FT_Done_MM_Var(ftLib, mmVar);
+}
+
 float FontFace::GetHorizontalAdvance(uint32_t glyphId,
                                      const minikin::MinikinPaint& paint,
                                      const minikin::FontFakery& /*fakery*/) const {
     if (!ftFace_) return 0.0f;
-    
+
+    // fontWidth が 100% 以外の場合、wdth 軸を設定してからグリフをロード
+    float fakeScaleX = 1.0f;
+    if (paint.fontWidth != 100.0f) {
+        if (hasWdthAxis_) {
+            float clampedWidth = std::clamp(paint.fontWidth, wdthMin_, wdthMax_);
+            applyWidth(clampedWidth);
+            fakeScaleX = paint.fontWidth / clampedWidth;
+        } else {
+            fakeScaleX = paint.fontWidth / 100.0f;
+        }
+    }
+
     FT_Int32 flags;
     bool hasColor = FT_HAS_COLOR(ftFace_);
-    
+
     if (hasColor) {
         flags = FT_LOAD_COLOR | FT_LOAD_DEFAULT;
     } else {
         flags = LOAD_FLAG;
     }
-    
+
     FT_Error err = loadGlyph(glyphId, paint.size, ftFace_, flags);
     if (err != 0) {
         return 0.0f;
     }
-    
+
     float advance = FTPosToFloat(ftFace_->glyph->advance.x);
-    
+
     // カラービットマップフォントはスケーリングが必要
     if (hasColor && FT_HAS_FIXED_SIZES(ftFace_) && ftFace_->num_fixed_sizes > 0) {
         float fixedSize = ftFace_->available_sizes[0].height;
@@ -209,7 +259,10 @@ float FontFace::GetHorizontalAdvance(uint32_t glyphId,
             advance *= scale;
         }
     }
-    
+
+    // fontWidth の fake 分をスケール
+    advance *= fakeScaleX;
+
     return advance;
 }
 

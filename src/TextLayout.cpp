@@ -41,7 +41,7 @@ void TextLayout::doLayout() {
     // MinikinPaint の設定
     minikin::MinikinPaint paint(style_.fontCollection);
     style_.applyTo(paint);
-    
+
     // レイアウト実行
     minikin::StartHyphenEdit startHyphen = minikin::StartHyphenEdit::NO_EDIT;
     minikin::EndHyphenEdit endHyphen = minikin::EndHyphenEdit::NO_EDIT;
