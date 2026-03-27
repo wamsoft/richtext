@@ -7,37 +7,37 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(richtext)
 endif()
 
-# ThorVG configuration - static library, SW engine only
-set(TVG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(TVG_THREADS ON CACHE BOOL "" FORCE)
-set(TVG_PARTIAL ON CACHE BOOL "" FORCE)
-set(TVG_SIMD ON CACHE BOOL "" FORCE)
-set(TVG_LOG OFF CACHE BOOL "" FORCE)
-set(TVG_FILE_IO OFF CACHE BOOL "" FORCE)
-
-# Enable SW engine only
-set(TVG_ENGINE_SW ON CACHE BOOL "" FORCE)
-set(TVG_ENGINE_GL OFF CACHE BOOL "" FORCE)
-set(TVG_ENGINE_WG OFF CACHE BOOL "" FORCE)
-
-# Loaders - enable what we need
-set(TVG_LOADER_SVG OFF CACHE BOOL "" FORCE)
-set(TVG_LOADER_PNG OFF CACHE BOOL "" FORCE)
-set(TVG_LOADER_JPG OFF CACHE BOOL "" FORCE)
-set(TVG_LOADER_LOTTIE OFF CACHE BOOL "" FORCE)
-set(TVG_LOADER_TTF OFF CACHE BOOL "" FORCE)
-set(TVG_LOADER_WEBP OFF CACHE BOOL "" FORCE)
-
-# Disable savers and tools
-set(TVG_SAVER_GIF OFF CACHE BOOL "" FORCE)
-set(TVG_TOOL_SVG2PNG OFF CACHE BOOL "" FORCE)
-set(TVG_TOOL_LOTTIE2GIF OFF CACHE BOOL "" FORCE)
-
-# Disable bindings and tests
-set(TVG_BINDINGS_CAPI OFF CACHE BOOL "" FORCE)
-set(TVG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-
 if(NOT TARGET thorvg)
+    # ThorVG configuration - static library, SW engine only
+    set(TVG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(TVG_THREADS ON CACHE BOOL "" FORCE)
+    set(TVG_PARTIAL ON CACHE BOOL "" FORCE)
+    set(TVG_SIMD ON CACHE BOOL "" FORCE)
+    set(TVG_LOG OFF CACHE BOOL "" FORCE)
+    set(TVG_FILE_IO OFF CACHE BOOL "" FORCE)
+
+    # Enable SW engine only
+    set(TVG_ENGINE_SW ON CACHE BOOL "" FORCE)
+    set(TVG_ENGINE_GL OFF CACHE BOOL "" FORCE)
+    set(TVG_ENGINE_WG OFF CACHE BOOL "" FORCE)
+
+    # Loaders - enable what we need
+    set(TVG_LOADER_SVG OFF CACHE BOOL "" FORCE)
+    set(TVG_LOADER_PNG OFF CACHE BOOL "" FORCE)
+    set(TVG_LOADER_JPG OFF CACHE BOOL "" FORCE)
+    set(TVG_LOADER_LOTTIE OFF CACHE BOOL "" FORCE)
+    set(TVG_LOADER_TTF OFF CACHE BOOL "" FORCE)
+    set(TVG_LOADER_WEBP OFF CACHE BOOL "" FORCE)
+
+    # Disable savers and tools
+    set(TVG_SAVER_GIF OFF CACHE BOOL "" FORCE)
+    set(TVG_TOOL_SVG2PNG OFF CACHE BOOL "" FORCE)
+    set(TVG_TOOL_LOTTIE2GIF OFF CACHE BOOL "" FORCE)
+
+    # Disable bindings and tests
+    set(TVG_BINDINGS_CAPI OFF CACHE BOOL "" FORCE)
+    set(TVG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+
     add_subdirectory(ext/thorvg)
 endif()
 
@@ -79,18 +79,14 @@ target_link_libraries(richtext_lib PUBLIC thorvg minikin)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(sample_render sample/sample_render.cpp)
     target_link_libraries(sample_render PRIVATE richtext_lib)
-    target_compile_options(sample_render PRIVATE /utf-8)
-
-    add_executable(debug_bidi sample/debug_bidi.cpp)
-    target_link_libraries(debug_bidi PRIVATE richtext_lib)
-    target_compile_options(debug_bidi PRIVATE /utf-8)
 
     add_executable(sample_sequential sample/sample_sequential.cpp)
     target_link_libraries(sample_sequential PRIVATE richtext_lib)
-    target_compile_options(sample_sequential PRIVATE /utf-8)
 
     add_executable(sample_texture sample/sample_texture.cpp)
     target_link_libraries(sample_texture PRIVATE richtext_lib)
-    target_compile_options(sample_texture PRIVATE /utf-8)
+
+    add_executable(debug_bidi sample/debug_bidi.cpp)
+    target_link_libraries(debug_bidi PRIVATE richtext_lib)
 endif()
 
