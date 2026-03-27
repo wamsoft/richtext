@@ -123,32 +123,6 @@ int parseInt(const std::string& value) {
     }
 }
 
-// Appearance 内の描画順序を正規化する
-// 描画順: 影 Fill（最背面）→ Stroke → 通常 Fill（最前面）
-Appearance rebuildDrawOrder(const Appearance& src) {
-    const auto& styles = src.getStyles();
-    Appearance app;
-    // 1. 影（オフセット付き Fill）
-    for (const auto& s : styles) {
-        if (s.type == DrawStyle::Type::Fill && (s.offsetX != 0.0f || s.offsetY != 0.0f)) {
-            app.addFill(s);
-        }
-    }
-    // 2. Stroke
-    for (const auto& s : styles) {
-        if (s.type == DrawStyle::Type::Stroke) {
-            app.addStroke(s);
-        }
-    }
-    // 3. 通常 Fill（オフセットなし）
-    for (const auto& s : styles) {
-        if (s.type == DrawStyle::Type::Fill && s.offsetX == 0.0f && s.offsetY == 0.0f) {
-            app.addFill(s);
-        }
-    }
-    return app;
-}
-
 } // anonymous namespace
 
 //------------------------------------------------------------------------------
@@ -303,57 +277,60 @@ TagParser::ParseResult TagParser::parse(
         state.styleStack.pop();
     }
     
-    // ギャップ補填：タグで覆われていない領域にデフォルトスパンを挿入
-    // ネストされたタグによる重複スパンを除去し、内側（最も具体的な）スパンを優先する
+    // ギャップ補填：ネストされたタグによる重複スパンを解決し、
+    // 各文字位置に最も内側（最も具体的な）スタイルを適用する。
+    //
+    // スパンは閉じタグ順（内側→外側）に格納されている。
+    // 逆順（外側→内側）に文字単位で塗り、内側が外側を上書きすることで
+    // ネストの優先順位を正しく反映する。
     if (!state.plainText.empty()) {
-        // stable_sort で start 順にソート
-        // ネストされたタグでは内側の閉じタグが先に処理されるため、
-        // 同一 start のスパンでは内側（先に push された）スパンが前に来る
-        std::stable_sort(state.spans.begin(), state.spans.end(),
-                         [](const TextSpan& a, const TextSpan& b) { return a.start < b.start; });
+        size_t n = state.plainText.size();
 
-        std::vector<TextSpan> filled;
-        size_t cursor = 0;
-        for (const auto& sp : state.spans) {
-            // cursor 以前で終わるスパンは完全に既存スパンに覆われているのでスキップ
-            if (sp.end <= cursor) continue;
+        // 各文字位置に適用するスパンインデックス（-1 = デフォルトスタイル）
+        std::vector<int> charSpanIdx(n, -1);
 
-            if (sp.start >= cursor) {
-                // 重複なし：そのまま使用
-                if (sp.start > cursor) {
-                    // cursor..sp.start の隙間をデフォルトスパンで埋める
-                    TextSpan gap;
-                    gap.start = cursor;
-                    gap.end = sp.start;
-                    gap.style = defaultStyle;
-                    gap.appearance = defaultAppearance;
-                    filled.push_back(gap);
-                }
-                filled.push_back(sp);
-                cursor = sp.end;
-            } else {
-                // 部分的に重複（外側タグの残り部分）
-                // 内側タグでカバーされなかった残り部分はデフォルトスタイルで埋める
-                if (sp.end > cursor) {
-                    TextSpan gap;
-                    gap.start = cursor;
-                    gap.end = sp.end;
-                    gap.style = defaultStyle;
-                    gap.appearance = defaultAppearance;
-                    filled.push_back(gap);
-                    cursor = sp.end;
-                }
+        // 逆順（外側から内側へ）に処理し、内側のスパンが外側を上書き
+        for (int si = static_cast<int>(state.spans.size()) - 1; si >= 0; si--) {
+            const auto& sp = state.spans[si];
+            size_t end = std::min(sp.end, n);
+            for (size_t j = sp.start; j < end; j++) {
+                charSpanIdx[j] = si;
             }
         }
-        // 末尾の隙間
-        if (cursor < state.plainText.size()) {
-            TextSpan gap;
-            gap.start = cursor;
-            gap.end = state.plainText.size();
-            gap.style = defaultStyle;
-            gap.appearance = defaultAppearance;
-            filled.push_back(gap);
+
+        // 同一スパンインデックスの連続する文字列をマージして
+        // 重複のないスパンリストを構築
+        std::vector<TextSpan> filled;
+        size_t runStart = 0;
+        int prevIdx = charSpanIdx[0];
+
+        for (size_t i = 1; i <= n; i++) {
+            int curIdx = (i < n) ? charSpanIdx[i] : ~prevIdx; // 末尾で確実にフラッシュ
+            if (curIdx != prevIdx) {
+                TextSpan piece;
+                piece.start = runStart;
+                piece.end = i;
+                if (prevIdx >= 0) {
+                    const auto& src = state.spans[prevIdx];
+                    piece.style = src.style;
+                    piece.appearance = src.appearance;
+                    piece.hasRuby = src.hasRuby;
+                    piece.rubyText = src.rubyText;
+                    piece.hasUnderline = src.hasUnderline;
+                    piece.hasStrikethrough = src.hasStrikethrough;
+                    piece.isSuperscript = src.isSuperscript;
+                    piece.isSubscript = src.isSubscript;
+                    piece.yOffset = src.yOffset;
+                } else {
+                    piece.style = defaultStyle;
+                    piece.appearance = defaultAppearance;
+                }
+                filled.push_back(piece);
+                runStart = i;
+                prevIdx = curIdx;
+            }
         }
+
         state.spans = std::move(filled);
     }
     
@@ -778,6 +755,7 @@ TextStyle TagParser::applySubTag(const TextStyle& current) {
 Appearance TagParser::applyColorTag(const Appearance& current,
                                     const std::map<std::string, std::string>& attrs) {
     uint32_t color = 0xFFFFFFFF;
+    float ox = 0, oy = 0;
 
     auto it = attrs.find("value");
     if (it != attrs.end()) {
@@ -800,32 +778,24 @@ Appearance TagParser::applyColorTag(const Appearance& current,
                 static_cast<uint32_t>(b);
     }
 
-    // 親の Appearance を引き継ぎ、既存の Fill を指定色に差し替える
-    // 描画順: 影 Fill（最背面）→ Stroke → 通常 Fill（最前面）
-    const auto& parentStyles = current.getStyles();
-    Appearance app;
+    it = attrs.find("x");
+    if (it != attrs.end()) ox = parseFloat(it->second);
+    
+    it = attrs.find("y");
+    if (it != attrs.end()) oy = parseFloat(it->second);
 
-    // 1. 影（オフセット付き Fill）を最背面に
-    for (const auto& s : parentStyles) {
-        if (s.type == DrawStyle::Type::Fill && (s.offsetX != 0.0f || s.offsetY != 0.0f)) {
-            app.addFill(s);
-        }
+    Appearance app = current;
+    bool addMode = (attrs.find("add") != attrs.end());
+    if (addMode) {
+        app.addColor(color, ox, oy);
+    } else {
+        app.setColor(color);
     }
-    // 2. ストロークを中間に
-    for (const auto& s : parentStyles) {
-        if (s.type == DrawStyle::Type::Stroke) {
-            app.addStroke(s);
-        }
-    }
-    // 3. 通常の Fill を最前面に
-    app.addFill(color);
     return app;
 }
 
 Appearance TagParser::applyOutlineTag(const Appearance& current,
                                       const std::map<std::string, std::string>& attrs) {
-    Appearance app = current;
-    
     uint32_t color = 0xFF000000;  // デフォルト: 黒
     float width = 2.0f;
     float ox = 0, oy = 0;
@@ -846,25 +816,18 @@ Appearance TagParser::applyOutlineTag(const Appearance& current,
     it = attrs.find("y");
     if (it != attrs.end()) oy = parseFloat(it->second);
     
-    // 縁取りをストロークとして追加（塗りより先に描画されるよう先頭に挿入）
-    DrawStyle stroke;
-    stroke.type = DrawStyle::Type::Stroke;
-    stroke.setColor(color);
-    stroke.strokeWidth = width;
-    stroke.offsetX = ox;
-    stroke.offsetY = oy;
-    stroke.strokeJoin = tvg::StrokeJoin::Round;
-    
-    // 既存のスタイルを保持しつつストロークを追加し、描画順を正規化
-    app.addStroke(stroke);
-
-    return rebuildDrawOrder(app);
+    Appearance app = current;
+    bool addMode = (attrs.find("add") != attrs.end());
+    if (addMode) {
+        app.addOutline(color, width, ox, oy);
+    } else {
+        app.setOutline(color, width, ox, oy);
+    }
+    return app;
 }
 
 Appearance TagParser::applyShadowTag(const Appearance& current,
                                      const std::map<std::string, std::string>& attrs) {
-    Appearance app = current;
-    
     uint32_t color = 0x80000000;  // デフォルト: 半透明黒
     float ox = 2.0f, oy = 2.0f;
     
@@ -879,10 +842,14 @@ Appearance TagParser::applyShadowTag(const Appearance& current,
     it = attrs.find("y");
     if (it != attrs.end()) oy = parseFloat(it->second);
     
-    // 影を塗りとして追加し、描画順を正規化
-    app.addFill(color, ox, oy);
-
-    return rebuildDrawOrder(app);
+    Appearance app = current;
+    bool addMode = (attrs.find("add") != attrs.end());
+    if (addMode) {
+        app.addShadow(color, ox, oy);
+    } else {
+        app.setShadow(color, ox, oy);
+    }
+    return app;
 }
 
 //------------------------------------------------------------------------------

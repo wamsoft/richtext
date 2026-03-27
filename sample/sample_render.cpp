@@ -477,7 +477,7 @@ int main(int argc, char* argv[]) {
         // 9b. 縁取りのみ
         richtext::RectF outlineRect(LEFT, y, PARA_W, 50.0f);
         renderer.drawStyledText(
-            utf8ToUtf16("<outline color=0xFF000000 width=3><color value=0xFFFFDD00>縁取りのみ Outline Only</color></outline>"),
+            utf8ToUtf16("<color value=0xFFFFDD00>色指定<outline color=0xFF000000 width=3>縁取りのみ Outline Only</outline></color>"),
             outlineRect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
@@ -497,8 +497,9 @@ int main(int argc, char* argv[]) {
         // 9d. 縁取り＋影（両方）
         richtext::RectF bothRect(LEFT, y, PARA_W, 50.0f);
         renderer.drawStyledText(
-            utf8ToUtf16("<outline color=0xFF000000 width=3><shadow color=0x88000000 x=3 y=3>"
-                        "<color value=0xFF44CCFF>縁取り＋影 Both</color></shadow></outline>"),
+            utf8ToUtf16("<color value=0xFF44CCFF>色指定"
+                        "<outline color=0xFF000000 width=3><shadow color=0x88000000 x=3 y=3>"
+                        "縁取り＋影 Both</shadow></outline></color>"),
             bothRect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
@@ -513,6 +514,31 @@ int main(int argc, char* argv[]) {
                         "<shadow color=0x88000000 x=3 y=3>影付き</shadow>"
                         "→通常"),
             seqRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+        y += 50;
+
+        // 9f. 二段縁取り（add属性）
+        richtext::RectF dblOutlineRect(LEFT, y, PARA_W, 50.0f);
+        renderer.drawStyledText(
+            utf8ToUtf16("初期状態<color value=0xFFFF4444>色指定"
+                        "<outline color=0xFFfF00FF width=3>一段縁取り"
+                        "<outline color=0xFF000088 width=6 add>二段縁取り Double Outline"
+                        "</outline></outline></color>"),
+            dblOutlineRect,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styles, appearances);
+        y += 50;
+
+        // 9g. 二段カラー（add属性で半透明色を重ねる）
+        richtext::RectF dblColorRect(LEFT, y, PARA_W, 50.0f);
+        renderer.drawStyledText(
+            utf8ToUtf16("初期状態<color value=0xFFFFDD00>色指定"
+                        "<color value=0x880000FF x=10 y=10 add>二段カラー Layered Color</color>"
+                        "</color>"),
+            dblColorRect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
             styles, appearances);

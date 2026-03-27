@@ -210,6 +210,45 @@ public:
      */
     void addStroke(const DrawStyle& style);
     
+    // ------------------------------------------------------------------
+    // タグ操作用メソッド
+    // ------------------------------------------------------------------
+
+    /**
+     * テキスト色の設定（既存の通常Fillを置換）
+     * 一番下のオフセット0 Fillから上のFillをすべて削除した後 addColor()
+     */
+    void setColor(uint32_t argb);
+
+    /**
+     * テキスト色の追加（一番上＝最前面に追加）
+     */
+    void addColor(uint32_t argb, float offsetX = 0, float offsetY = 0);
+
+    /**
+     * 縁取りの設定（既存のStrokeを置換）
+     * 一番下のオフセット0 Fillの下にあるStrokeをすべて削除した後 addOutline()
+     */
+    void setOutline(uint32_t argb, float width,
+                    float offsetX = 0, float offsetY = 0);
+
+    /**
+     * 縁取りの追加（既存Strokeの一番下＝最背面に追加）
+     */
+    void addOutline(uint32_t argb, float width,
+                    float offsetX = 0, float offsetY = 0);
+
+    /**
+     * 影の設定（既存の影Fillを置換）
+     * 一番下のオフセット0 Fillの下にあるFillをすべて削除した後 addShadow()
+     */
+    void setShadow(uint32_t argb, float offsetX, float offsetY);
+
+    /**
+     * 影の追加（一番後ろ＝最背面に追加）
+     */
+    void addShadow(uint32_t argb, float offsetX, float offsetY);
+
     /**
      * 全スタイルをクリア
      */
@@ -247,6 +286,11 @@ public:
 
 private:
     std::vector<DrawStyle> styles_;
+
+    /**
+     * 一番下（最初）のオフセット0 Fill のインデックスを返す（未発見時 -1）
+     */
+    int findBottomMainFillIndex() const;
 };
 
 } // namespace richtext
