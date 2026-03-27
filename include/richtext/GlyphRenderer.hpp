@@ -133,7 +133,8 @@ private:
                     const std::vector<tvg::Point>& points,
                     float x, float y,
                     const Appearance& appearance,
-                    float skewX = 0.0f);
+                    float skewX = 0.0f,
+                    float fakeBoldStroke = 0.0f);
 
     /**
      * ビットマップ描画（カラー絵文字）

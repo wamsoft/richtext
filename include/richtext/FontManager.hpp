@@ -12,6 +12,7 @@
 
 // minikin
 #include <minikin/FontCollection.h>
+#include <minikin/FontStyle.h>
 
 namespace richtext {
 
@@ -56,9 +57,26 @@ public:
      * @param index フォントインデックス（OTCの場合）
      * @return 成功時 true
      */
-    bool registerFont(const std::string& path, 
+    bool registerFont(const std::string& path,
                       const std::string& name,
                       int index = 0);
+
+    /**
+     * バリアブルフォント登録（ウェイト指定）
+     *
+     * 同じフォントファイルからウェイト別の FontFace を作成して登録する。
+     * minikin のフォント選択で適切なウェイトが選ばれるようになる。
+     *
+     * @param path フォントファイルパス
+     * @param name 登録名
+     * @param weight フォントウェイト（100-900）
+     * @param index フォントインデックス（OTCの場合）
+     * @return 成功時 true
+     */
+    bool registerVariableFont(const std::string& path,
+                              const std::string& name,
+                              uint16_t weight,
+                              int index = 0);
     
     /**
      * フォント解除
@@ -113,7 +131,12 @@ private:
     FT_Library ftLibrary_ = nullptr;
     bool initialized_ = false;
     
-    std::map<std::string, std::shared_ptr<FontFace>> fonts_;
+    struct FontEntry {
+        std::shared_ptr<FontFace> face;
+        uint16_t weight = 400;
+        minikin::FontStyle::Slant slant = minikin::FontStyle::Slant::UPRIGHT;
+    };
+    std::map<std::string, std::vector<FontEntry>> fonts_;
     std::map<std::string, uint32_t> localeIds_;
 };
 

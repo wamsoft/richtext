@@ -77,6 +77,12 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
             skewX = -0.25f;
         }
 
+        // フェイクボールド: フォントサイズの 1/24 のストローク幅で太字をシミュレート
+        float fakeBoldStroke = 0.0f;
+        if (fakery.isFakeBold()) {
+            fakeBoldStroke = style.fontSize / 24.0f;
+        }
+
         // ベクターパス描画
         if (useCache_) {
             auto key = makeKey(font, glyph.glyphId, style.fontSize);
@@ -93,13 +99,15 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
                 }
             }
             if (it != pathCache_.end()) {
-                renderPath(it->second.commands, it->second.points, glyphX, glyphY, appearance, skewX);
+                renderPath(it->second.commands, it->second.points,
+                           glyphX, glyphY, appearance, skewX, fakeBoldStroke);
             }
         } else {
             std::vector<tvg::PathCommand> commands;
             std::vector<tvg::Point> points;
             if (font->getGlyphPath(glyph.glyphId, style.fontSize, commands, points)) {
-                renderPath(commands, points, glyphX, glyphY, appearance, skewX);
+                renderPath(commands, points,
+                           glyphX, glyphY, appearance, skewX, fakeBoldStroke);
             }
         }
     }
@@ -150,7 +158,8 @@ void GlyphRenderer::renderPath(const std::vector<tvg::PathCommand>& commands,
                                const std::vector<tvg::Point>& points,
                                float x, float y,
                                const Appearance& appearance,
-                               float skewX) {
+                               float skewX,
+                               float fakeBoldStroke) {
     if (commands.empty() || !canvas_) {
         return;
     }
@@ -171,24 +180,35 @@ void GlyphRenderer::renderPath(const std::vector<tvg::PathCommand>& commands,
             pt.x += x + drawStyle.offsetX;
             pt.y += y + drawStyle.offsetY;
         }
-        
+
         shape->appendPath(commands.data(), static_cast<uint32_t>(commands.size()),
                          offsetPoints.data(), static_cast<uint32_t>(offsetPoints.size()));
-        
+
         if (drawStyle.type == DrawStyle::Type::Fill) {
             // Fill
             shape->fill(drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
-            shape->strokeWidth(0);
+            if (fakeBoldStroke > 0.0f) {
+                // フェイクボールド: 同色ストロークで線を太くする
+                shape->strokeWidth(fakeBoldStroke);
+                shape->strokeFill(drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
+                shape->strokeJoin(tvg::StrokeJoin::Round);
+            } else {
+                shape->strokeWidth(0);
+            }
         } else {
             // Stroke
             shape->fill(0, 0, 0, 0);  // 透明なフィル
-            shape->strokeWidth(drawStyle.strokeWidth);
+            float totalStroke = drawStyle.strokeWidth;
+            if (fakeBoldStroke > 0.0f) {
+                totalStroke += fakeBoldStroke;
+            }
+            shape->strokeWidth(totalStroke);
             shape->strokeFill(drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
             shape->strokeCap(drawStyle.strokeCap);
             shape->strokeJoin(drawStyle.strokeJoin);
             shape->strokeMiterlimit(drawStyle.miterLimit);
         }
-        
+
         canvas_->add(shape);
     }
 }

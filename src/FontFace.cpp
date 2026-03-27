@@ -17,6 +17,7 @@
 #include FT_OUTLINE_H
 #include FT_TRUETYPE_TABLES_H
 #include FT_COLOR_H
+#include FT_MULTIPLE_MASTERS_H
 
 // minikin types
 #include <minikin/MinikinPaint.h>
@@ -121,6 +122,20 @@ FontFace::FontFace(const std::string& path, int index)
     if (err != 0) {
         throw std::runtime_error("Failed to open font face: " + path);
     }
+
+    // バリアブルフォントの軸情報を取得
+    FT_MM_Var* mmVar = nullptr;
+    if (FT_Get_MM_Var(ftFace_, &mmVar) == 0 && mmVar) {
+        isVariable_ = true;
+        for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
+            FT_Var_Axis& axis = mmVar->axis[i];
+            axes_.emplace_back(
+                static_cast<minikin::AxisTag>(axis.tag),
+                axis.def / 65536.0f  // 16.16 固定小数点 → float
+            );
+        }
+        FT_Done_MM_Var(ftLib, mmVar);
+    }
 }
 
 FontFace::~FontFace() {
@@ -132,6 +147,37 @@ void FontFace::releaseFace() {
         FT_Done_Face(ftFace_);
         ftFace_ = nullptr;
     }
+}
+
+void FontFace::setVariations(const std::vector<minikin::FontVariation>& variations) {
+    if (!ftFace_ || !isVariable_) return;
+
+    // axes_ を更新
+    axes_ = variations;
+
+    // FreeType にバリエーション座標を設定
+    FT_MM_Var* mmVar = nullptr;
+    if (FT_Get_MM_Var(ftFace_, &mmVar) != 0 || !mmVar) return;
+
+    std::vector<FT_Fixed> coords(mmVar->num_axis);
+    // まずデフォルト値で初期化
+    for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
+        coords[i] = mmVar->axis[i].def;
+    }
+    // 指定された軸の値を上書き
+    for (const auto& var : variations) {
+        for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
+            if (mmVar->axis[i].tag == var.axisTag) {
+                coords[i] = static_cast<FT_Fixed>(var.value * 65536.0f);
+                break;
+            }
+        }
+    }
+
+    FT_Set_Var_Design_Coordinates(ftFace_, mmVar->num_axis, coords.data());
+
+    FT_Library ftLib = FontManager::instance().getFTLibrary();
+    FT_Done_MM_Var(ftLib, mmVar);
 }
 
 float FontFace::GetHorizontalAdvance(uint32_t glyphId,

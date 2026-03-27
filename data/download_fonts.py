@@ -18,17 +18,29 @@ DATA_DIR = SCRIPT_DIR
 
 # (出力ファイル名, URL, zip内のパス or None(直接ダウンロード))
 FONTS = [
-    # 欧州言語
+    # 欧州言語（固定ウェイト）
     (
         "NotoSans-Regular.ttf",
         "https://github.com/notofonts/latin-greek-cyrillic/releases/download/NotoSans-v2.015/NotoSans-v2.015.zip",
         "NotoSans/unhinted/ttf/NotoSans-Regular.ttf",
     ),
-    # 日本語
+    # 欧州言語（Variable Font: wght 100-900, wdth 62.5-100）
+    (
+        "NotoSans-VariableFont.ttf",
+        "https://github.com/notofonts/latin-greek-cyrillic/releases/download/NotoSans-v2.015/NotoSans-v2.015.zip",
+        "NotoSans/unhinted/variable-ttf/NotoSans[wdth,wght].ttf",
+    ),
+    # 日本語（固定ウェイト）
     (
         "NotoSansJP-Regular.otf",
         "https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/16_NotoSansJP.zip",
         "NotoSansJP-Regular.otf",
+    ),
+    # 日本語（Variable Font: wght 100-900）
+    (
+        "NotoSansJP-VariableFont.ttf",
+        "https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/02_NotoSansCJK-TTF-VF.zip",
+        "Variable/TTF/Subset/NotoSansJP-VF.ttf",
     ),
     # 韓国語
     (

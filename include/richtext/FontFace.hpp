@@ -100,11 +100,27 @@ public:
      * フォントパスの取得
      */
     const std::string& getFontPath() const { return fontPath_; }
-    
+
     /**
      * FT_Face の取得（内部使用）
      */
     FT_Face getFTFace() const { return ftFace_; }
+
+    /**
+     * バリアブルフォントかどうか
+     */
+    bool isVariableFont() const { return isVariable_; }
+
+    /**
+     * バリエーション軸の設定
+     * @param variations 軸タグと値のペア配列
+     *
+     * 対応軸タグ:
+     *   'wght' (weight): 100-900
+     *   'wdth' (width): 62.5-100
+     *   'ital' (italic): 0 or 1
+     */
+    void setVariations(const std::vector<minikin::FontVariation>& variations);
     
     /**
      * グリフパスの取得（thorvg用）
@@ -153,6 +169,7 @@ private:
     std::vector<uint8_t> fontDataBuffer_;  // mmap が使えない環境用
     
     std::vector<minikin::FontVariation> axes_;
+    bool isVariable_ = false;
     
     /**
      * FreeType アウトラインを thorvg パスに変換

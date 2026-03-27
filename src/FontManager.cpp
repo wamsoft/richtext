@@ -63,7 +63,7 @@ void FontManager::terminate() {
     initialized_ = false;
 }
 
-bool FontManager::registerFont(const std::string& path, 
+bool FontManager::registerFont(const std::string& path,
                                const std::string& name,
                                int index) {
     if (!initialized_) {
@@ -71,19 +71,54 @@ bool FontManager::registerFont(const std::string& path,
             return false;
         }
     }
-    
+
     // 既に登録済みなら上書き
-    auto it = fonts_.find(name);
-    if (it != fonts_.end()) {
-        fonts_.erase(it);
-    }
-    
+    fonts_.erase(name);
+
     try {
         auto fontFace = std::make_shared<FontFace>(path, index);
-        fonts_[name] = fontFace;
+        FontEntry entry;
+        entry.face = fontFace;
+        entry.weight = 400;
+        entry.slant = minikin::FontStyle::Slant::UPRIGHT;
+        fonts_[name].push_back(std::move(entry));
         return true;
     } catch (const std::exception& e) {
         fprintf(stderr, "Failed to register font '%s': %s\n", name.c_str(), e.what());
+        return false;
+    }
+}
+
+bool FontManager::registerVariableFont(const std::string& path,
+                                        const std::string& name,
+                                        uint16_t weight,
+                                        int index) {
+    if (!initialized_) {
+        if (!initialize()) {
+            return false;
+        }
+    }
+
+    try {
+        auto fontFace = std::make_shared<FontFace>(path, index);
+        if (!fontFace->isVariableFont()) {
+            fprintf(stderr, "Font '%s' is not a variable font\n", name.c_str());
+            return false;
+        }
+
+        // wght 軸を設定
+        fontFace->setVariations({
+            minikin::FontVariation(0x77676874 /* wght */, static_cast<float>(weight))
+        });
+
+        FontEntry entry;
+        entry.face = fontFace;
+        entry.weight = weight;
+        entry.slant = minikin::FontStyle::Slant::UPRIGHT;
+        fonts_[name].push_back(std::move(entry));
+        return true;
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Failed to register variable font '%s': %s\n", name.c_str(), e.what());
         return false;
     }
 }
@@ -93,49 +128,53 @@ bool FontManager::unregisterFont(const std::string& name) {
     if (it == fonts_.end()) {
         return false;
     }
-    
+
     fonts_.erase(it);
     return true;
 }
 
 std::shared_ptr<FontFace> FontManager::getFont(const std::string& name) const {
     auto it = fonts_.find(name);
-    if (it == fonts_.end()) {
+    if (it == fonts_.end() || it->second.empty()) {
         return nullptr;
     }
-    return it->second;
+    return it->second[0].face;
 }
 
 std::shared_ptr<minikin::FontCollection> FontManager::createCollection(
     const std::vector<std::string>& names) {
-    
+
     if (names.empty()) {
         return nullptr;
     }
-    
+
     std::vector<std::shared_ptr<minikin::FontFamily>> families;
-    
+
     for (const auto& name : names) {
-        auto fontFace = getFont(name);
-        if (!fontFace) {
+        auto it = fonts_.find(name);
+        if (it == fonts_.end() || it->second.empty()) {
             fprintf(stderr, "Font not found: %s\n", name.c_str());
             continue;
         }
-        
-        // Font を作成
+
+        // 同じ名前の全エントリ（複数ウェイト）を1つの FontFamily にまとめる
         std::vector<minikin::Font> fonts;
-        fonts.push_back(minikin::Font::Builder(fontFace).build());
-        
-        // FontFamily を作成
+        for (const auto& entry : it->second) {
+            fonts.push_back(
+                minikin::Font::Builder(entry.face)
+                    .setWeight(entry.weight)
+                    .setSlant(entry.slant)
+                    .build());
+        }
+
         auto family = std::make_shared<minikin::FontFamily>(std::move(fonts));
         families.push_back(family);
     }
-    
+
     if (families.empty()) {
         return nullptr;
     }
-    
-    // FontCollection を作成
+
     return std::make_shared<minikin::FontCollection>(families);
 }
 

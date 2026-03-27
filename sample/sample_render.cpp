@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
     printf("=== richtext Sample Renderer ===\n\n");
 
     const int WIDTH  = 900;
-    const int HEIGHT = 4980;
+    const int HEIGHT = 6200;
     std::vector<uint32_t> buffer(WIDTH * HEIGHT, 0xFFFFFFFF);  // 白背景
 
     //--------------------------------------------------------------------------
@@ -230,6 +230,21 @@ int main(int argc, char* argv[]) {
             printf("   [%s] %s\n", f.name, f.file);
         } else {
             fprintf(stderr, "   [%s] FAILED: %s\n", f.name, f.file);
+        }
+    }
+
+    // Variable Font をウェイト別に登録
+    {
+        const std::string vfSans = dataDir + "NotoSans-VariableFont.ttf";
+        const std::string vfJP   = dataDir + "NotoSansJP-VariableFont.ttf";
+        uint16_t weights[] = {100, 300, 400, 500, 700, 900};
+        for (uint16_t w : weights) {
+            if (fm.registerVariableFont(vfSans, "sans-vf", w)) {
+                printf("   [sans-vf w=%d] NotoSans-VariableFont.ttf\n", w);
+            }
+            if (fm.registerVariableFont(vfJP, "ja-vf", w)) {
+                printf("   [ja-vf w=%d] NotoSansJP-VariableFont.ttf\n", w);
+            }
         }
     }
 
@@ -1004,9 +1019,101 @@ int main(int argc, char* argv[]) {
     y += SECTION;
 
     //--------------------------------------------------------------------------
-    // 25. 描画同期・保存
+    // 25. Variable Font ウェイト比較
     //--------------------------------------------------------------------------
-    printf("\n25. Syncing and saving...\n");
+    printf("\n25. Variable Font weight comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[25] Variable Font weight comparison", LEFT, y);
+    y += 18;
+
+    {
+        auto vfCollection = fm.createCollection({"sans-vf", "ja-vf", "emoji"});
+
+        uint16_t demoWeights[] = {100, 300, 400, 500, 700, 900};
+        const char* weightNames[] = {"Thin(100)", "Light(300)", "Regular(400)",
+                                     "Medium(500)", "Bold(700)", "Black(900)"};
+
+        auto sampleText = utf8ToUtf16(
+            u8"Variable Font ウェイト — 日本語の太さ変化テスト ABC 012");
+
+        for (int i = 0; i < 6; ++i) {
+            char label[64];
+            snprintf(label, sizeof(label), "  %s", weightNames[i]);
+            drawSectionLabel(renderer, baseStyle, label, LEFT, y);
+            y += 16;
+
+            richtext::RectF rect(LEFT, y, PARA_W, 40.0f);
+            drawRectF(buffer.data(), WIDTH, HEIGHT, rect, BORDER_BLUE, 1);
+            auto style = makeStyle(vfCollection, 28.0f, demoWeights[i]);
+            renderer.drawParagraph(sampleText, rect,
+                richtext::ParagraphLayout::HAlign::Left,
+                richtext::ParagraphLayout::VAlign::Top,
+                style, blackFill);
+            y += 48;
+        }
+    }
+    y += SECTION;
+
+    //--------------------------------------------------------------------------
+    // 26. Fake Bold 比較
+    //--------------------------------------------------------------------------
+    printf("\n26. Fake Bold comparison...\n");
+    drawSectionLabel(renderer, baseStyle, "[26] Fake Bold comparison", LEFT, y);
+    y += 18;
+
+    {
+        // 固定ウェイトフォント（Regular のみ登録済み）→ weight=700 で Fake Bold 発動
+        auto staticCollection = fm.createCollection({"sans", "ja", "emoji"});
+        // Variable Font（複数ウェイト登録済み）→ weight=700 で実際の Bold ウェイト使用
+        auto vfCollection = fm.createCollection({"sans-vf", "ja-vf", "emoji"});
+
+        auto sampleText = utf8ToUtf16(
+            u8"Bold テスト — 太字の品質比較 ABC xyz 012");
+
+        // Regular（比較基準）
+        drawSectionLabel(renderer, baseStyle,
+            "  Regular (weight=400, static font)", LEFT, y);
+        y += 16;
+        richtext::RectF r1(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, r1, BORDER_GREEN, 1);
+        auto style400 = makeStyle(staticCollection, 28.0f, 400);
+        renderer.drawParagraph(sampleText, r1,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            style400, blackFill);
+        y += 48;
+
+        // Fake Bold（固定フォント + weight=700）
+        drawSectionLabel(renderer, baseStyle,
+            "  Fake Bold (weight=700, static font, stroke simulation)", LEFT, y);
+        y += 16;
+        richtext::RectF r2(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, r2, BORDER_ORANGE, 1);
+        auto styleFake = makeStyle(staticCollection, 28.0f, 700);
+        renderer.drawParagraph(sampleText, r2,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styleFake, blackFill);
+        y += 48;
+
+        // Variable Font Bold（真の Bold）
+        drawSectionLabel(renderer, baseStyle,
+            "  Variable Font Bold (weight=700, true weight axis)", LEFT, y);
+        y += 16;
+        richtext::RectF r3(LEFT, y, PARA_W, 40.0f);
+        drawRectF(buffer.data(), WIDTH, HEIGHT, r3, BORDER_BLUE, 1);
+        auto styleVF = makeStyle(vfCollection, 28.0f, 700);
+        renderer.drawParagraph(sampleText, r3,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            styleVF, blackFill);
+        y += 48;
+    }
+    y += SECTION;
+
+    //--------------------------------------------------------------------------
+    // 27. 描画同期・保存
+    //--------------------------------------------------------------------------
+    printf("\n27. Syncing and saving...\n");
     renderer.sync();
 
     // 枠線はバッファに直接描画済みなので sync 後に saveBMP
