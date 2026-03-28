@@ -70,6 +70,13 @@ public:
      */
     void setUseCache(bool use) { useCache_ = use; }
     bool getUseCache() const { return useCache_; }
+
+    /**
+     * 上下反転用行列の設定（nullptr なら反転なし）
+     */
+    void setFlipTransform(const tvg::Matrix* flipYMatrix) {
+        flipYMatrix_ = flipYMatrix;
+    }
     
     /**
      * キャッシュクリア
@@ -84,6 +91,7 @@ public:
 private:
     tvg::Canvas* canvas_;
     bool useCache_ = true;
+    const tvg::Matrix* flipYMatrix_ = nullptr;
 
     // ------------------------------------------------------------------
     // グリフキャッシュ

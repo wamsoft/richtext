@@ -55,7 +55,8 @@ struct BMPInfoHeader {
 };
 #pragma pack(pop)
 
-bool saveBMP(const char* filename, const uint32_t* pixels, int width, int height) {
+// 上下反転制御付きバージョン
+bool saveBMP(const char* filename, const uint32_t* pixels, int width, int height, bool sourceIsTopDown) {
     BMPFileHeader fileHeader;
     BMPInfoHeader infoHeader;
     infoHeader.width = width;
@@ -71,12 +72,13 @@ bool saveBMP(const char* filename, const uint32_t* pixels, int width, int height
     file.write(reinterpret_cast<const char*>(&fileHeader), sizeof(fileHeader));
     file.write(reinterpret_cast<const char*>(&infoHeader), sizeof(infoHeader));
 
-    // BMP は bottom-up、ARGB → BGRA 変換
+    // ARGB → BGRA 変換（必要に応じて上下反転）
     std::vector<uint32_t> bgrPixels(width * height);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             int srcIdx = y * width + x;
-            int dstIdx = (height - 1 - y) * width + x;
+            int dstY = sourceIsTopDown ? (height - 1 - y) : y;
+            int dstIdx = dstY * width + x;
             uint32_t argb = pixels[srcIdx];
             uint8_t a = (argb >> 24) & 0xFF;
             uint8_t r = (argb >> 16) & 0xFF;
@@ -127,47 +129,16 @@ std::u16string utf8ToUtf16(const std::string& utf8) {
 // 枠線描画ヘルパー（デバッグ用）
 //------------------------------------------------------------------------------
 
-/**
- * ピクセルバッファに矩形枠線を描画する
- * @param buffer   ARGB ピクセルバッファ
- * @param bufW     バッファ幅
- * @param bufH     バッファ高さ
- * @param x, y     矩形左上座標
- * @param w, h     矩形サイズ
- * @param color    枠線色（ARGB）
- * @param thickness 枠線の太さ（ピクセル）
- */
-void drawRect(uint32_t* buffer, int bufW, int bufH,
-              int x, int y, int w, int h,
-              uint32_t color = 0xFFCC4444, int thickness = 1) {
-    auto putPixel = [&](int px, int py) {
-        if (px >= 0 && px < bufW && py >= 0 && py < bufH) {
-            buffer[py * bufW + px] = color;
-        }
-    };
-
-    for (int t = 0; t < thickness; ++t) {
-        // 上辺
-        for (int px = x; px < x + w; ++px) putPixel(px, y + t);
-        // 下辺
-        for (int px = x; px < x + w; ++px) putPixel(px, y + h - 1 - t);
-        // 左辺
-        for (int py = y; py < y + h; ++py) putPixel(x + t, py);
-        // 右辺
-        for (int py = y; py < y + h; ++py) putPixel(x + w - 1 - t, py);
-    }
-}
+static richtext::TextRenderer* gRectRenderer = nullptr;
 
 /**
  * RectF を使った枠線描画（float → int 変換付き）
  */
-void drawRectF(uint32_t* buffer, int bufW, int bufH,
-               const richtext::RectF& rect,
+void drawRectF(const richtext::RectF& rect,
                uint32_t color = 0xFFCC4444, int thickness = 1) {
-    drawRect(buffer, bufW, bufH,
-             static_cast<int>(rect.x), static_cast<int>(rect.y),
-             static_cast<int>(rect.width), static_cast<int>(rect.height),
-             color, thickness);
+    if (!gRectRenderer) return;
+    gRectRenderer->drawRect(rect.x, rect.y, rect.width, rect.height,
+                            0x00000000, color, static_cast<float>(thickness));
 }
 
 // セクションラベルを描画するヘルパー
@@ -192,6 +163,17 @@ int main(int argc, char* argv[]) {
 #endif
 
     printf("=== richtext Sample Renderer ===\n\n");
+
+    bool useFlippedCanvas = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--flipped-canvas") == 0) {
+            useFlippedCanvas = true;
+        }
+    }
+
+    if (useFlippedCanvas) {
+        printf("Canvas mode: flipped pointer + negative pitch\n");
+    }
 
     const int WIDTH  = 900;
     const int HEIGHT = 7400;
@@ -283,7 +265,15 @@ int main(int argc, char* argv[]) {
     //--------------------------------------------------------------------------
     printf("\n2. Initializing TextRenderer...\n");
     richtext::TextRenderer renderer;
-    renderer.setCanvas(buffer.data(), WIDTH, HEIGHT, WIDTH * sizeof(uint32_t));
+    gRectRenderer = &renderer;
+    const int pitch = WIDTH * static_cast<int>(sizeof(uint32_t));
+    if (useFlippedCanvas) {
+        uint32_t *ptr = buffer.data();
+        uint32_t* flippedPtr = ptr + (HEIGHT - 1) * WIDTH;
+        renderer.setCanvas(flippedPtr, WIDTH, HEIGHT, -pitch);
+    } else {
+        renderer.setCanvas(buffer.data(), WIDTH, HEIGHT, pitch);
+    }
 
     //--------------------------------------------------------------------------
     // 3. フォントコレクション・スタイルの設定
@@ -388,7 +378,7 @@ int main(int argc, char* argv[]) {
     {
         richtext::TextStyle paraStyle = makeStyle(jaCollection, 22.0f);
         richtext::RectF paraRect(LEFT, y, PARA_W, 120.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, paraRect, BORDER_RED, 2);
+        drawRectF(paraRect, BORDER_RED, 2);
         renderer.drawParagraph(
             utf8ToUtf16("これは複数行のパラグラフです。minikin の行分割アルゴリズムによって、"
                         "指定した幅に収まるよう自動的に改行されます。日本語の禁則処理も適用されます。"),
@@ -413,7 +403,7 @@ int main(int argc, char* argv[]) {
         appearances["default"] = blackFill;
 
         richtext::RectF tagRect(LEFT, y, PARA_W, 100.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, tagRect, BORDER_BLUE);
+        drawRectF(tagRect, BORDER_BLUE);
         renderer.drawStyledText(
             utf8ToUtf16("<b>太字</b>と<i>斜体</i>と"
                         "<color value=0xFFCC0000>赤色</color>と"
@@ -560,7 +550,7 @@ int main(int argc, char* argv[]) {
         ltrStyle.bidi = minikin::Bidi::LTR;
         auto bidiText = utf8ToUtf16("Hello \u0645\u0631\u062D\u0628\u0627 World \u0634\u0643\u0631\u0627");
         richtext::RectF ltrRect(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, ltrRect, BORDER_RED);
+        drawRectF(ltrRect, BORDER_RED);
         renderer.drawParagraph(bidiText, ltrRect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
@@ -577,7 +567,7 @@ int main(int argc, char* argv[]) {
         rtlStyle.bidi = minikin::Bidi::RTL;
         auto bidiText = utf8ToUtf16("Hello \u0645\u0631\u062D\u0628\u0627 World \u0634\u0643\u0631\u0627");
         richtext::RectF rtlRect(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, rtlRect, BORDER_BLUE);
+        drawRectF(rtlRect, BORDER_BLUE);
         renderer.drawParagraph(bidiText, rtlRect,
             richtext::ParagraphLayout::HAlign::Right,
             richtext::ParagraphLayout::VAlign::Top,
@@ -597,7 +587,7 @@ int main(int argc, char* argv[]) {
         ltrStyle.bidi = minikin::Bidi::LTR;
         auto bidiText = utf8ToUtf16("\u65E5\u672C\u8A9E\u3068\u0627\u0644\u0639\u0631\u0628\u064A\u0629\u306E\u6DF7\u5728\u30C6\u30B9\u30C8");
         richtext::RectF rect(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, rect, BORDER_RED);
+        drawRectF(rect, BORDER_RED);
         renderer.drawParagraph(bidiText, rect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
@@ -614,7 +604,7 @@ int main(int argc, char* argv[]) {
         rtlStyle.bidi = minikin::Bidi::RTL;
         auto bidiText = utf8ToUtf16("\u65E5\u672C\u8A9E\u3068\u0627\u0644\u0639\u0631\u0628\u064A\u0629\u306E\u6DF7\u5728\u30C6\u30B9\u30C8");
         richtext::RectF rect(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, rect, BORDER_BLUE);
+        drawRectF(rect, BORDER_BLUE);
         renderer.drawParagraph(bidiText, rect,
             richtext::ParagraphLayout::HAlign::Right,
             richtext::ParagraphLayout::VAlign::Top,
@@ -632,7 +622,7 @@ int main(int argc, char* argv[]) {
     {
         richtext::TextStyle jaStyle = makeStyle(jaCollection, 24.0f, 400, "ja_JP-u-lb-strict");
         richtext::RectF jaRect(LEFT, y, PARA_W, 200.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, jaRect, BORDER_RED, 2);
+        drawRectF(jaRect, BORDER_RED, 2);
         renderer.drawParagraph(
             utf8ToUtf16(
                 "吾輩は猫である。名前はまだ無い。\U0001F431"
@@ -658,7 +648,7 @@ int main(int argc, char* argv[]) {
     {
         richtext::TextStyle koStyle = makeStyle(koCollection, 24.0f, 400, "ko_KR");
         richtext::RectF koRect(LEFT, y, PARA_W, 200.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, koRect, BORDER_BLUE, 2);
+        drawRectF(koRect, BORDER_BLUE, 2);
         renderer.drawParagraph(
             utf8ToUtf16(
                 "모든 인간은 태어날 때부터 자유로우며 그 존엄과 권리에 있어 동등하다. \U0001F30F"
@@ -682,7 +672,7 @@ int main(int argc, char* argv[]) {
     {
         richtext::TextStyle zhStyle = makeStyle(zhCollection, 24.0f, 400, "zh_CN");
         richtext::RectF zhRect(LEFT, y, PARA_W, 200.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, zhRect, BORDER_GREEN, 2);
+        drawRectF(zhRect, BORDER_GREEN, 2);
         renderer.drawParagraph(
             utf8ToUtf16(
                 "人人生而自由，在尊严和权利上一律平等。\U0001F30D"
@@ -763,7 +753,7 @@ int main(int argc, char* argv[]) {
         richtext::TextStyle arStyle = makeStyle(arCollection, 24.0f, 400, "ar");
         arStyle.bidi = minikin::Bidi::DEFAULT_RTL;
         richtext::RectF arRect(LEFT, y, PARA_W, 200.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, arRect, BORDER_ORANGE, 2);
+        drawRectF(arRect, BORDER_ORANGE, 2);
 
         // 世界人権宣言 第1条・第2条（アラビア語）
         renderer.drawParagraph(
@@ -823,7 +813,7 @@ int main(int argc, char* argv[]) {
         appearances["default"] = blackFill;
 
         richtext::RectF mixRect(LEFT, y, PARA_W, 200.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, mixRect, BORDER_ORANGE, 2);
+        drawRectF(mixRect, BORDER_ORANGE, 2);
         renderer.drawStyledText(
             utf8ToUtf16(
                 "<font size=14>小さなテキスト（14px）</font>"
@@ -854,7 +844,7 @@ int main(int argc, char* argv[]) {
         appearances["default"] = blackFill;
 
         richtext::RectF cjkRect(LEFT, y, PARA_W, 180.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, cjkRect, BORDER_RED, 2);
+        drawRectF(cjkRect, BORDER_RED, 2);
         renderer.drawStyledText(
             utf8ToUtf16(
                 "<color value=0xFFCC0000>日本語：</color>桜の花が咲きました。\U0001F338 "
@@ -884,7 +874,7 @@ int main(int argc, char* argv[]) {
         appearances["default"] = blackFill;
 
         richtext::RectF enRect(LEFT, y, PARA_W, 100.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, enRect, BORDER_BLUE, 2);
+        drawRectF(enRect, BORDER_BLUE, 2);
         renderer.drawStyledText(
             utf8ToUtf16(
                 "Hello World! \U0001F44B Welcome to the RichText library. \U0001F680\U0001F31F "
@@ -921,7 +911,7 @@ int main(int argc, char* argv[]) {
         drawSectionLabel(renderer, baseStyle, "  [19a] lineSpacing=0 (default, ruby overlaps)", LEFT, y);
         y += 16;
         richtext::RectF rubyRect1(LEFT, y, PARA_W, 90.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, rubyRect1, BORDER_BLUE, 2);
+        drawRectF(rubyRect1, BORDER_BLUE, 2);
         renderer.drawStyledText(rubyText, rubyRect1,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
@@ -932,7 +922,7 @@ int main(int argc, char* argv[]) {
         drawSectionLabel(renderer, baseStyle, "  [19b] lineSpacing=16 (room for ruby)", LEFT, y);
         y += 16;
         richtext::RectF rubyRect2(LEFT, y, PARA_W, 110.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, rubyRect2, BORDER_GREEN, 2);
+        drawRectF(rubyRect2, BORDER_GREEN, 2);
         renderer.drawStyledText(rubyText, rubyRect2,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
@@ -954,7 +944,7 @@ int main(int argc, char* argv[]) {
 
         // 左揃え
         richtext::RectF leftRect(LEFT, y, PARA_W, alignH);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, leftRect, BORDER_RED);
+        drawRectF(leftRect, BORDER_RED);
         renderer.drawParagraph(
             utf8ToUtf16("左揃え（Left）テキストサンプル。行が折り返された場合でも左端に揃います。"),
             leftRect,
@@ -965,7 +955,7 @@ int main(int argc, char* argv[]) {
 
         // 中央揃え
         richtext::RectF centerRect(LEFT, y, PARA_W, alignH);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, centerRect, BORDER_BLUE);
+        drawRectF(centerRect, BORDER_BLUE);
         renderer.drawParagraph(
             utf8ToUtf16("中央揃え（Center）テキストサンプル。各行が中央に配置されます。"),
             centerRect,
@@ -976,7 +966,7 @@ int main(int argc, char* argv[]) {
 
         // 右揃え
         richtext::RectF rightRect(LEFT, y, PARA_W, alignH);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, rightRect, BORDER_GREEN);
+        drawRectF(rightRect, BORDER_GREEN);
         renderer.drawParagraph(
             utf8ToUtf16("右揃え（Right）テキストサンプル。各行が右端に配置されます。"),
             rightRect,
@@ -1002,7 +992,7 @@ int main(int argc, char* argv[]) {
 
         // Top
         richtext::RectF topRect(LEFT, y, boxW, boxH);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, topRect, BORDER_RED, 2);
+        drawRectF(topRect, BORDER_RED, 2);
         renderer.drawParagraph(valignText, topRect,
             richtext::ParagraphLayout::HAlign::Center,
             richtext::ParagraphLayout::VAlign::Top,
@@ -1010,7 +1000,7 @@ int main(int argc, char* argv[]) {
 
         // Middle
         richtext::RectF midRect(LEFT + boxW + 10, y, boxW, boxH);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, midRect, BORDER_BLUE, 2);
+        drawRectF(midRect, BORDER_BLUE, 2);
         renderer.drawParagraph(valignText, midRect,
             richtext::ParagraphLayout::HAlign::Center,
             richtext::ParagraphLayout::VAlign::Middle,
@@ -1018,7 +1008,7 @@ int main(int argc, char* argv[]) {
 
         // Bottom
         richtext::RectF botRect(LEFT + (boxW + 10) * 2, y, boxW, boxH);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, botRect, BORDER_GREEN, 2);
+        drawRectF(botRect, BORDER_GREEN, 2);
         renderer.drawParagraph(valignText, botRect,
             richtext::ParagraphLayout::HAlign::Center,
             richtext::ParagraphLayout::VAlign::Bottom,
@@ -1045,7 +1035,7 @@ int main(int argc, char* argv[]) {
         drawSectionLabel(renderer, baseStyle, "  Color (NotoColorEmoji)", LEFT, y);
         y += 16;
         richtext::RectF colorRect(LEFT, y, PARA_W, 50.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, colorRect, BORDER_BLUE, 2);
+        drawRectF(colorRect, BORDER_BLUE, 2);
         auto colorStyle = makeStyle(colorCollection, 28.0f);
         renderer.drawParagraph(emojiText, colorRect,
             richtext::ParagraphLayout::HAlign::Left,
@@ -1058,7 +1048,7 @@ int main(int argc, char* argv[]) {
         drawSectionLabel(renderer, baseStyle, "  COLRv1 (Noto-COLRv1)", LEFT, y);
         y += 16;
         richtext::RectF colrRect(LEFT, y, PARA_W, 50.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, colrRect, BORDER_RED, 2);
+        drawRectF(colrRect, BORDER_RED, 2);
         auto colrStyle = makeStyle(colrCollection, 28.0f);
         renderer.drawParagraph(emojiText, colrRect,
             richtext::ParagraphLayout::HAlign::Left,
@@ -1070,7 +1060,7 @@ int main(int argc, char* argv[]) {
         drawSectionLabel(renderer, baseStyle, "  Monochrome (NotoEmoji)", LEFT, y);
         y += 16;
         richtext::RectF monoRect(LEFT, y, PARA_W, 50.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, monoRect, BORDER_GREEN, 2);
+        drawRectF(monoRect, BORDER_GREEN, 2);
         auto monoStyle = makeStyle(monoCollection, 28.0f);
         renderer.drawParagraph(emojiText, monoRect,
             richtext::ParagraphLayout::HAlign::Left,
@@ -1104,7 +1094,7 @@ int main(int argc, char* argv[]) {
             y += 16;
 
             richtext::RectF rect(LEFT, y, PARA_W, 40.0f);
-            drawRectF(buffer.data(), WIDTH, HEIGHT, rect, BORDER_BLUE, 1);
+            drawRectF(rect, BORDER_BLUE, 1);
             auto style = makeStyle(vfCollection, 28.0f, demoWeights[i]);
             renderer.drawParagraph(sampleText, rect,
                 richtext::ParagraphLayout::HAlign::Left,
@@ -1136,7 +1126,7 @@ int main(int argc, char* argv[]) {
             "  Regular (weight=400, static font)", LEFT, y);
         y += 16;
         richtext::RectF r1(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, r1, BORDER_GREEN, 1);
+        drawRectF(r1, BORDER_GREEN, 1);
         auto style400 = makeStyle(staticCollection, 28.0f, 400);
         renderer.drawParagraph(sampleText, r1,
             richtext::ParagraphLayout::HAlign::Left,
@@ -1149,7 +1139,7 @@ int main(int argc, char* argv[]) {
             "  Fake Bold (weight=700, static font, stroke simulation)", LEFT, y);
         y += 16;
         richtext::RectF r2(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, r2, BORDER_ORANGE, 1);
+        drawRectF(r2, BORDER_ORANGE, 1);
         auto styleFake = makeStyle(staticCollection, 28.0f, 700);
         renderer.drawParagraph(sampleText, r2,
             richtext::ParagraphLayout::HAlign::Left,
@@ -1162,7 +1152,7 @@ int main(int argc, char* argv[]) {
             "  Variable Font Bold (weight=700, true weight axis)", LEFT, y);
         y += 16;
         richtext::RectF r3(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, r3, BORDER_BLUE, 1);
+        drawRectF(r3, BORDER_BLUE, 1);
         auto styleVF = makeStyle(vfCollection, 28.0f, 700);
         renderer.drawParagraph(sampleText, r3,
             richtext::ParagraphLayout::HAlign::Left,
@@ -1195,7 +1185,7 @@ int main(int argc, char* argv[]) {
             "  Regular (upright, static font)", LEFT, y);
         y += 16;
         richtext::RectF ri1(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, ri1, BORDER_GREEN, 1);
+        drawRectF(ri1, BORDER_GREEN, 1);
         auto styleUpright = makeStyle(staticCollection, 24.0f);
         renderer.drawParagraph(sampleText, ri1,
             richtext::ParagraphLayout::HAlign::Left,
@@ -1208,7 +1198,7 @@ int main(int argc, char* argv[]) {
             "  Fake Italic (static font, skew simulation)", LEFT, y);
         y += 16;
         richtext::RectF ri2(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, ri2, BORDER_ORANGE, 1);
+        drawRectF(ri2, BORDER_ORANGE, 1);
         auto styleFakeIt = makeStyle(staticCollection, 24.0f, 400,
                                      "ja_JP-u-lb-strict", true);
         renderer.drawParagraph(sampleText, ri2,
@@ -1222,7 +1212,7 @@ int main(int argc, char* argv[]) {
             "  Variable Font Italic (true italic glyphs)", LEFT, y);
         y += 16;
         richtext::RectF ri3(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, ri3, BORDER_BLUE, 1);
+        drawRectF(ri3, BORDER_BLUE, 1);
         auto styleVFIt = makeStyle(vfCollection, 24.0f, 400,
                                    "ja_JP-u-lb-strict", true);
         renderer.drawParagraph(sampleText, ri3,
@@ -1236,7 +1226,7 @@ int main(int argc, char* argv[]) {
             "  Variable Font Bold Italic (weight=700 + italic)", LEFT, y);
         y += 16;
         richtext::RectF ri4(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, ri4, BORDER_RED, 1);
+        drawRectF(ri4, BORDER_RED, 1);
         auto styleVFBoldIt = makeStyle(vfCollection, 24.0f, 700,
                                        "ja_JP-u-lb-strict", true);
         renderer.drawParagraph(sampleText, ri4,
@@ -1250,7 +1240,7 @@ int main(int argc, char* argv[]) {
             "  Japanese italic (CJK has no ital axis -> fake italic)", LEFT, y);
         y += 16;
         richtext::RectF ri5(LEFT, y, PARA_W, 40.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, ri5, BORDER_ORANGE, 1);
+        drawRectF(ri5, BORDER_ORANGE, 1);
         auto styleJaIt = makeStyle(vfCollection, 24.0f, 400,
                                    "ja_JP-u-lb-strict", true);
         renderer.drawParagraph(sampleTextJa, ri5,
@@ -1290,7 +1280,7 @@ int main(int argc, char* argv[]) {
             y += 16;
 
             richtext::RectF re(LEFT, y, PARA_W, 36.0f);
-            drawRectF(buffer.data(), WIDTH, HEIGHT, re, BORDER_ORANGE, 1);
+            drawRectF(re, BORDER_ORANGE, 1);
             auto style = makeStyle(vfCollection, 22.0f);
             style.fontWidth = widths[i];
             renderer.drawParagraph(sampleTextEn, re,
@@ -1300,7 +1290,7 @@ int main(int argc, char* argv[]) {
             y += 40;
 
             richtext::RectF rj(LEFT, y, PARA_W, 36.0f);
-            drawRectF(buffer.data(), WIDTH, HEIGHT, rj, BORDER_ORANGE, 1);
+            drawRectF(rj, BORDER_ORANGE, 1);
             renderer.drawParagraph(sampleTextJa, rj,
                 richtext::ParagraphLayout::HAlign::Left,
                 richtext::ParagraphLayout::VAlign::Top,
@@ -1321,7 +1311,7 @@ int main(int argc, char* argv[]) {
             y += 16;
 
             richtext::RectF re(LEFT, y, PARA_W, 36.0f);
-            drawRectF(buffer.data(), WIDTH, HEIGHT, re, BORDER_ORANGE, 1);
+            drawRectF(re, BORDER_ORANGE, 1);
             auto style = makeStyle(staticCollection, 22.0f);
             style.fontWidth = widths[i];
             renderer.drawParagraph(sampleTextEn, re,
@@ -1331,7 +1321,7 @@ int main(int argc, char* argv[]) {
             y += 40;
 
             richtext::RectF rj(LEFT, y, PARA_W, 36.0f);
-            drawRectF(buffer.data(), WIDTH, HEIGHT, rj, BORDER_ORANGE, 1);
+            drawRectF(rj, BORDER_ORANGE, 1);
             renderer.drawParagraph(sampleTextJa, rj,
                 richtext::ParagraphLayout::HAlign::Left,
                 richtext::ParagraphLayout::VAlign::Top,
@@ -1367,7 +1357,7 @@ int main(int argc, char* argv[]) {
         appearances["default"] = blackFill;
 
         richtext::RectF tagRect(LEFT, y, PARA_W, 80.0f);
-        drawRectF(buffer.data(), WIDTH, HEIGHT, tagRect, BORDER_BLUE);
+        drawRectF(tagRect, BORDER_BLUE);
         renderer.drawStyledText(
             utf8ToUtf16("ゴシック体と<font face='serif'>明朝体</font>の"
                         "切替えテスト🎉 "
@@ -1386,8 +1376,7 @@ int main(int argc, char* argv[]) {
     printf("\n30. Syncing and saving...\n");
     renderer.sync();
 
-    // 枠線はバッファに直接描画済みなので sync 後に saveBMP
-    if (saveBMP("output.bmp", buffer.data(), WIDTH, HEIGHT)) {
+    if (saveBMP("output.bmp", buffer.data(), WIDTH, HEIGHT, !useFlippedCanvas)) {
         printf("\nSuccess! Output saved to output.bmp\n");
     } else {
         fprintf(stderr, "\nFailed to save output.bmp\n");

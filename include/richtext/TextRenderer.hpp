@@ -291,10 +291,14 @@ private:
     std::unique_ptr<tvg::SwCanvas> canvas_;
     std::unique_ptr<GlyphRenderer> glyphRenderer_;
     
-    uint32_t* buffer_ = nullptr;
     int canvasWidth_ = 0;
     int canvasHeight_ = 0;
-    int canvasPitch_ = 0;
+    tvg::Matrix flipYMatrix_ = {
+        1.0f, 0.0f, 0.0f,
+        0.0f, -1.0f, 0.0f,
+        0.0f, 0.0f, 1.0f
+    };
+    const tvg::Matrix* flipYMatrixPtr_ = nullptr;
     
     bool useCache_ = true;
 };

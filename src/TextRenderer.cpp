@@ -33,36 +33,32 @@ TextRenderer::~TextRenderer() {
 //------------------------------------------------------------------------------
 
 void TextRenderer::setCanvas(uint32_t* buffer, int width, int height, int pitch) {
-    buffer_ = buffer;
     canvasWidth_ = width;
     canvasHeight_ = height;
-    canvasPitch_ = pitch;
+    if (pitch < 0) {
+        // pitch が負の場合は上下反転（DIB形式）
+        flipYMatrix_.e23 = static_cast<float>(canvasHeight_);
+        flipYMatrixPtr_ = &flipYMatrix_;
+        buffer = (uint32_t*)((uint8_t*)buffer + (height - 1) * pitch);
+        pitch = -pitch;
+    } else {
+        flipYMatrixPtr_ = nullptr;
+    }
     
     // SwCanvas を作成
     auto* rawCanvas = tvg::SwCanvas::gen();
     canvas_.reset(rawCanvas);
     if (!canvas_) return;
     
-    // バッファを設定
-    // pitch が負の場合は上下反転（DIB形式）
-    if (pitch < 0) {
-        // 上下反転の場合、最後の行のポインタを渡す
-        uint32_t absPitch = static_cast<uint32_t>(-pitch);
-        uint32_t stridePixels = absPitch / sizeof(uint32_t);
-        uint32_t* lastRow = buffer + (height - 1) * (absPitch / sizeof(uint32_t));
-        canvas_->target(lastRow, stridePixels,
-                       static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                       tvg::ColorSpace::ARGB8888);
-    } else {
-        uint32_t stridePixels = static_cast<uint32_t>(pitch) / sizeof(uint32_t);
-        canvas_->target(buffer, stridePixels,
-                       static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                       tvg::ColorSpace::ARGB8888);
-    }
+    uint32_t stridePixels = static_cast<uint32_t>(pitch) / sizeof(uint32_t);
+    canvas_->target(buffer, stridePixels,
+                    static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                    tvg::ColorSpace::ARGB8888);
     
     // GlyphRenderer を作成
     glyphRenderer_ = std::make_unique<GlyphRenderer>(canvas_.get());
     glyphRenderer_->setUseCache(useCache_);
+    glyphRenderer_->setFlipTransform(flipYMatrixPtr_);
 }
 
 void TextRenderer::clearCanvas(uint32_t color) {
@@ -82,6 +78,9 @@ void TextRenderer::clearCanvas(uint32_t color) {
             uint8_t g = (color >> 8) & 0xFF;
             uint8_t b = color & 0xFF;
             bg->fill(r, g, b, a);
+            if (flipYMatrixPtr_) {
+                bg->transform(*flipYMatrixPtr_);
+            }
             canvas_->add(bg);
         }
     }
@@ -175,10 +174,13 @@ RectF TextRenderer::drawLayout(const TextLayout& layout,
         }
     }
 
-    // バウンディングボックスを返す
+    // getBounds() は Y上向き座標系（ベースライン基準）なので、
+    // 左上原点の Y下向き座標系に変換して返す
     auto bounds = layout.getBounds();
-    return RectF(x + bounds.left, y + bounds.top,
-                bounds.width(), bounds.height());
+    float top = y - bounds.top;
+    float bottom = y - bounds.bottom;
+    return RectF(x + bounds.left, top,
+                bounds.right - bounds.left, bottom - top);
 }
 
 RectF TextRenderer::drawParagraphLayout(const ParagraphLayout& para,
@@ -547,6 +549,10 @@ void TextRenderer::drawRect(float x, float y, float width, float height,
         uint8_t sb = strokeColor & 0xFF;
         shape->strokeWidth(strokeWidth);
         shape->strokeFill(sr, sg, sb, sa);
+    }
+
+    if (flipYMatrixPtr_) {
+        shape->transform(*flipYMatrixPtr_);
     }
 
     canvas_->add(shape);

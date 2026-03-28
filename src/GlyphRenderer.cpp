@@ -10,6 +10,25 @@
 
 namespace richtext {
 
+namespace {
+
+static tvg::Matrix multiplyMatrix(const tvg::Matrix& a, const tvg::Matrix& b)
+{
+    tvg::Matrix m;
+    m.e11 = a.e11 * b.e11 + a.e12 * b.e21 + a.e13 * b.e31;
+    m.e12 = a.e11 * b.e12 + a.e12 * b.e22 + a.e13 * b.e32;
+    m.e13 = a.e11 * b.e13 + a.e12 * b.e23 + a.e13 * b.e33;
+    m.e21 = a.e21 * b.e11 + a.e22 * b.e21 + a.e23 * b.e31;
+    m.e22 = a.e21 * b.e12 + a.e22 * b.e22 + a.e23 * b.e32;
+    m.e23 = a.e21 * b.e13 + a.e22 * b.e23 + a.e23 * b.e33;
+    m.e31 = a.e31 * b.e11 + a.e32 * b.e21 + a.e33 * b.e31;
+    m.e32 = a.e31 * b.e12 + a.e32 * b.e22 + a.e33 * b.e32;
+    m.e33 = a.e31 * b.e13 + a.e32 * b.e23 + a.e33 * b.e33;
+    return m;
+}
+
+} // namespace
+
 //------------------------------------------------------------------------------
 // コンストラクタ・デストラクタ
 //------------------------------------------------------------------------------
@@ -234,6 +253,10 @@ void GlyphRenderer::renderPath(const std::vector<tvg::PathCommand>& commands,
             shape->strokeMiterlimit(drawStyle.miterLimit);
         }
 
+        if (flipYMatrix_) {
+            shape->transform(*flipYMatrix_);
+        }
+
         canvas_->add(shape);
     }
 }
@@ -283,11 +306,16 @@ void GlyphRenderer::renderBitmap(const GlyphBitmap& bitmap,
         return;
     }
 
-    // スケールと位置を設定
-    if (scale != 1.0f) {
-        picture->scale(scale);
+    // 位置・スケールを設定し、必要なら事前計算済み反転行列を合成
+    tvg::Matrix m = {
+        scale, 0.0f, x,
+        0.0f, scale, y,
+        0.0f, 0.0f, 1.0f
+    };
+    if (flipYMatrix_) {
+        m = multiplyMatrix(*flipYMatrix_, m);
     }
-    picture->translate(x, y);
+    picture->transform(m);
 
     // canvas に追加（所有権を移譲）
     canvas_->add(picture.release());
