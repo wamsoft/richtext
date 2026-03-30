@@ -5,6 +5,7 @@
  */
 
 #include "richtext/TextRenderer.hpp"
+#include "richtext/StyledLayout.hpp"
 #include "richtext/GlyphRenderer.hpp"
 #include "richtext/TagParser.hpp"
 
@@ -273,128 +274,97 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
         return rect;
     }
 
-    // デフォルトのスタイル・外観を styles/appearances から取得するか空で生成
-    TextStyle defaultStyle;
-    auto sit = styles.find("default");
-    if (sit != styles.end()) defaultStyle = sit->second;
+    StyledLayout styledLayout;
+    styledLayout.layout(text, rect.width, rect.height, hAlign, vAlign,
+                        styles, appearances, lineSpacing);
 
-    Appearance defaultAppearance;
-    auto ait = appearances.find("default");
-    if (ait != appearances.end()) defaultAppearance = ait->second;
-    if (defaultAppearance.isEmpty()) defaultAppearance = Appearance::defaultAppearance();
-
-    // タグ付きテキストを解析
-    TagParser parser;
-    TagParser::ParseResult parsed = parser.parse(text, defaultStyle, defaultAppearance, styles, appearances);
-
-    if (parsed.plainText.empty()) {
+    if (!styledLayout.isValid()) {
         return rect;
     }
 
-    // パラグラフレイアウト（行分割のみ目的。styleRuns を使ってフォント選択も正確に）
-    ParagraphLayout para;
-    if (lineSpacing > 0.0f) {
-        para.setLineSpacing(lineSpacing);
+    return drawStyledLayout(styledLayout, rect.x, rect.y);
+}
+
+RectF TextRenderer::drawStyledLayout(const StyledLayout& styledLayout,
+                                     float x, float y,
+                                     int maxGlyphs) {
+    if (!glyphRenderer_ || !styledLayout.isValid()) {
+        return RectF();
     }
-    if (!parsed.styleRuns.empty()) {
-        para.layout(parsed.plainText, rect.width, parsed.styleRuns);
-    } else {
-        para.layout(parsed.plainText, rect.width, defaultStyle);
-    }
+
+    const auto& parsed = styledLayout.getParsed();
+    const auto& para = styledLayout.getParagraphLayout();
+    const auto& lineLayouts = styledLayout.getLineLayouts();
+    ParagraphLayout::HAlign hAlign = styledLayout.getHAlign();
+    ParagraphLayout::VAlign vAlign = styledLayout.getVAlign();
+    float maxWidth = styledLayout.getMaxWidth();
+    float maxHeight = styledLayout.getMaxHeight();
+    const auto& parserOptions = styledLayout.getParserOptions();
 
     RectF totalBounds;
     bool first = true;
+    int remaining = maxGlyphs;
 
-    for (size_t lineIdx = 0; lineIdx < para.getLineCount(); ++lineIdx) {
-        const ParagraphLayout::LineInfo& line = para.getLine(lineIdx);
+    for (const auto& ll : lineLayouts) {
+        if (remaining == 0) break;
+
+        const ParagraphLayout::LineInfo& line = para.getLine(ll.lineIdx);
 
         // 行の垂直位置を計算
-        auto pos = para.getLinePosition(lineIdx, rect.x, rect.y,
-                                        rect.width, rect.height,
+        auto pos = para.getLinePosition(ll.lineIdx, x, y,
+                                        maxWidth, maxHeight,
                                         ParagraphLayout::HAlign::Left,  // X は後で調整
                                         vAlign);
         float baseY = pos.y;
 
-        // この行に重なるスパンを収集して左から描画
-        // 各スパン部分ごとに TextLayout を作り幅を計算する
-        struct SpanSegment {
-            size_t spanIdx;
-            size_t segStart;  // plainText 内の開始
-            size_t segEnd;
-        };
-        std::vector<SpanSegment> segments;
-
-        for (size_t si = 0; si < parsed.spans.size(); ++si) {
-            const auto& span = parsed.spans[si];
-            size_t overlapStart = std::max(span.start, line.startIndex);
-            size_t overlapEnd   = std::min(span.end,   line.endIndex);
-            if (overlapStart >= overlapEnd) continue;
-            segments.push_back({si, overlapStart, overlapEnd});
-        }
-
-        // スパンが全く無い行（空行など）はそのままスキップ
-        if (segments.empty()) {
+        if (ll.segments.empty()) {
             continue;
         }
 
-        // 各セグメントの幅を計算して合計幅を求める（Center/Right アライン用）
-        // MeasuredText の文字幅を使い、行分割時の計算と整合させる
-        struct SegmentLayout {
-            size_t spanIdx;
-            size_t segStart;  // plainText 内の開始位置
-            size_t segEnd;    // plainText 内の終了位置
-            float yOffset;
-            float measuredWidth;  // MeasuredText ベースの幅
-            TextLayout layout;
-        };
-        std::vector<SegmentLayout> segLayouts;
-        float totalWidth = 0.0f;
-
-        for (const auto& seg : segments) {
-            const auto& span = parsed.spans[seg.spanIdx];
-            std::u16string segText = parsed.plainText.substr(seg.segStart, seg.segEnd - seg.segStart);
-
-            SegmentLayout sl;
-            sl.spanIdx = seg.spanIdx;
-            sl.segStart = seg.segStart;
-            sl.segEnd = seg.segEnd;
-            sl.yOffset = span.yOffset;
-            sl.layout.layout(std::move(segText), span.style);
-            // 行分割と整合する幅を ParagraphLayout から取得
-            sl.measuredWidth = para.getRunWidth(seg.segStart, seg.segEnd);
-            totalWidth += sl.measuredWidth;
-            segLayouts.push_back(std::move(sl));
-        }
-
         // 水平アライン開始X を決定
-        float startX = rect.x;
+        float startX = x;
         switch (hAlign) {
         case ParagraphLayout::HAlign::Left:
-            startX = rect.x;
+            startX = x;
             break;
         case ParagraphLayout::HAlign::Center:
-            startX = rect.x + (rect.width - totalWidth) / 2.0f;
+            startX = x + (maxWidth - ll.totalWidth) / 2.0f;
             break;
         case ParagraphLayout::HAlign::Right:
-            startX = rect.x + rect.width - totalWidth;
+            startX = x + maxWidth - ll.totalWidth;
             break;
         case ParagraphLayout::HAlign::Justify:
-            startX = rect.x;
+            startX = x;
             break;
         }
 
         // 各セグメントを順番に描画
         float curX = startX;
-        for (const auto& sl : segLayouts) {
+        for (const auto& sl : ll.segments) {
+            if (remaining == 0) break;
+
             const auto& span = parsed.spans[sl.spanIdx];
             float drawY = baseY + sl.yOffset;
 
-            RectF segBounds = drawLayout(sl.layout, curX, drawY, span.appearance);
+            int segMax = remaining;  // -1 はそのまま「全て」として渡る
+            RectF segBounds = drawLayout(sl.layout, curX, drawY, span.appearance, segMax);
+
+            if (remaining > 0) {
+                // 論理文字数（ユニーク charIndex 数）で減算
+                const auto& glyphs = sl.layout.getGlyphs();
+                std::vector<size_t> chars;
+                chars.reserve(glyphs.size());
+                for (const auto& g : glyphs) chars.push_back(g.charIndex);
+                std::sort(chars.begin(), chars.end());
+                chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
+                size_t segCharCount = chars.size();
+                size_t drawn = std::min(static_cast<size_t>(remaining), segCharCount);
+                remaining -= static_cast<int>(drawn);
+            }
 
             // 下線・取り消し線の描画
             if (span.hasUnderline || span.hasStrikethrough) {
-                // Appearance のメイン Fill から色を取得
-                uint32_t lineColor = 0xFF000000;  // デフォルト: 黒
+                uint32_t lineColor = 0xFF000000;
                 for (const auto& ds : span.appearance.getStyles()) {
                     if (ds.type == DrawStyle::Type::Fill &&
                         ds.offsetX == 0.0f && ds.offsetY == 0.0f) {
@@ -415,27 +385,21 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
                 }
             }
 
-            // ルビ描画: ベーステキストの上に小さいサイズで中央揃え配置
-            // ルビ描画: ベーステキストの上に小さいサイズで中央揃え配置
+            // ルビ描画
             if (span.hasRuby && !span.rubyText.empty()) {
-                // ルビ用スタイル（サイズを縮小）
                 TextStyle rubyStyle = span.style;
-                rubyStyle.fontSize *= parser.getOptions().rubyScale;
+                rubyStyle.fontSize *= parserOptions.rubyScale;
 
-                // ルビテキストをレイアウト
                 TextLayout rubyLayout;
                 rubyLayout.layout(span.rubyText, rubyStyle);
 
                 float rubyWidth = rubyLayout.getWidth();
-                // ベーステキスト上に中央揃え
                 float rubyX = curX + (sl.measuredWidth - rubyWidth) / 2.0f;
-                // ベースラインの ascent 分上にルビの descent 分を加えた位置
                 float rubyY = drawY + sl.layout.getAscent() + rubyLayout.getDescent();
 
                 drawLayout(rubyLayout, rubyX, rubyY, span.appearance);
             }
 
-            // MeasuredText ベースの幅で位置を進める（行分割と整合）
             curX += sl.measuredWidth;
 
             if (first) {

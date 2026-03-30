@@ -58,6 +58,7 @@ set(RICHTEXT_LIB_SOURCES
     src/ParagraphLayout.cpp
     src/GlyphRenderer.cpp
     src/TextRenderer.cpp
+    src/StyledLayout.cpp
     src/TagParser.cpp
     src/TextureAtlas.cpp
 )

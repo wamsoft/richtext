@@ -23,6 +23,7 @@
 #include "richtext/Appearance.hpp"
 #include "richtext/TextLayout.hpp"
 #include "richtext/ParagraphLayout.hpp"
+#include "richtext/StyledLayout.hpp"
 #include "richtext/TextRenderer.hpp"
 #include "richtext/TagParser.hpp"
 #include "richtext/TextureAtlas.hpp"

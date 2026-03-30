@@ -13,6 +13,7 @@
 #include "richtext/Appearance.hpp"
 #include "richtext/TextLayout.hpp"
 #include "richtext/ParagraphLayout.hpp"
+#include "richtext/StyledLayout.hpp"
 
 namespace richtext {
 
@@ -210,6 +211,18 @@ public:
                          const std::map<std::string, TextStyle>& styles,
                          const std::map<std::string, Appearance>& appearances,
                          float lineSpacing = 0.0f);
+
+    /**
+     * StyledLayout を使ったスタイルタグ付きテキストの描画
+     * @param layout レイアウト済み StyledLayout
+     * @param x 描画開始X座標
+     * @param y 描画開始Y座標
+     * @param maxGlyphs 描画するグリフ数上限（-1 = 全て）
+     * @return 実際に描画した領域
+     */
+    RectF drawStyledLayout(const StyledLayout& layout,
+                           float x, float y,
+                           int maxGlyphs = -1);
     
     /**
      * 矩形描画
