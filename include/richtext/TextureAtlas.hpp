@@ -8,6 +8,7 @@
 
 #include "richtext/TextLayout.hpp"
 #include "richtext/ParagraphLayout.hpp"
+#include "richtext/StyledLayout.hpp"
 #include "richtext/Appearance.hpp"
 #include "richtext/TextStyle.hpp"
 
@@ -99,6 +100,13 @@ public:
                             const Appearance& appearance);
 
     /**
+     * StyledLayout のグリフをアトラスに追加
+     * @param layout StyledLayout
+     * @return 成功時 true
+     */
+    bool addStyledLayout(const StyledLayout& layout);
+
+    /**
      * アトラスをテクスチャに書き込み（確定）
      * addLayout/addParagraphLayout で追加したグリフを
      * テクスチャにレンダリングする。
@@ -132,6 +140,18 @@ public:
                                        ParagraphLayout::HAlign hAlign,
                                        ParagraphLayout::VAlign vAlign,
                                        const TextStyle& style,
+                                       int maxGlyphs = -1) const;
+
+    /**
+     * 表示用コピー矩形配列を生成（StyledLayout）
+     * @param layout StyledLayout
+     * @param x 描画開始X
+     * @param y 描画開始Y
+     * @param maxGlyphs 最大グリフ数（-1 = 全て）
+     * @return コピー矩形配列（表示順）
+     */
+    std::vector<CopyRect> getCopyRects(const StyledLayout& layout,
+                                       float x, float y,
                                        int maxGlyphs = -1) const;
 
 private:

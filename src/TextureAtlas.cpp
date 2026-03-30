@@ -188,6 +188,25 @@ bool TextureAtlas::addParagraphLayout(const ParagraphLayout& para,
     return true;
 }
 
+bool TextureAtlas::addStyledLayout(const StyledLayout& styledLayout) {
+    if (!styledLayout.isValid()) return false;
+
+    const auto& parsed = styledLayout.getParsed();
+
+    for (const auto& ll : styledLayout.getLineLayouts()) {
+        for (const auto& sl : ll.segments) {
+            const auto& span = parsed.spans[sl.spanIdx];
+            const TextStyle& segStyle = sl.layout.getStyle();
+            for (const auto& glyph : sl.layout.getGlyphs()) {
+                if (!renderGlyphToAtlas(glyph, segStyle, span.appearance)) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 //------------------------------------------------------------------------------
 // テクスチャに書き込み
 //------------------------------------------------------------------------------
@@ -284,6 +303,112 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const ParagraphLayout& para,
             size_t lineCharCount = chars.size();
             size_t drawn = std::min(static_cast<size_t>(remaining), lineCharCount);
             remaining -= static_cast<int>(drawn);
+        }
+    }
+
+    return rects;
+}
+
+std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayout,
+                                                  float x, float y,
+                                                  int maxGlyphs) const {
+    std::vector<CopyRect> rects;
+    if (!styledLayout.isValid()) return rects;
+
+    const auto& parsed = styledLayout.getParsed();
+    const auto& para = styledLayout.getParagraphLayout();
+    const auto& lineLayouts = styledLayout.getLineLayouts();
+    ParagraphLayout::HAlign hAlign = styledLayout.getHAlign();
+    ParagraphLayout::VAlign vAlign = styledLayout.getVAlign();
+    float maxWidth = styledLayout.getMaxWidth();
+    float maxHeight = styledLayout.getMaxHeight();
+
+    int remaining = maxGlyphs;
+    int globalIndex = 0;
+
+    for (const auto& ll : lineLayouts) {
+        if (remaining == 0) break;
+
+        const ParagraphLayout::LineInfo& line = para.getLine(ll.lineIdx);
+
+        auto pos = para.getLinePosition(ll.lineIdx, x, y,
+                                        maxWidth, maxHeight,
+                                        ParagraphLayout::HAlign::Left,
+                                        vAlign);
+        float baseY = pos.y;
+
+        if (ll.segments.empty()) continue;
+
+        // 水平アライン
+        float startX = x;
+        switch (hAlign) {
+        case ParagraphLayout::HAlign::Left:
+            startX = x;
+            break;
+        case ParagraphLayout::HAlign::Center:
+            startX = x + (maxWidth - ll.totalWidth) / 2.0f;
+            break;
+        case ParagraphLayout::HAlign::Right:
+            startX = x + maxWidth - ll.totalWidth;
+            break;
+        case ParagraphLayout::HAlign::Justify:
+            startX = x;
+            break;
+        }
+
+        float curX = startX;
+        for (const auto& sl : ll.segments) {
+            if (remaining == 0) break;
+
+            const auto& span = parsed.spans[sl.spanIdx];
+            float drawY = baseY + sl.yOffset;
+            const TextStyle& segStyle = sl.layout.getStyle();
+            const auto& glyphs = sl.layout.getGlyphs();
+
+            // maxGlyphs 処理用に threshold を計算
+            size_t threshold = SIZE_MAX;
+            if (remaining >= 0) {
+                std::vector<size_t> sorted;
+                sorted.reserve(glyphs.size());
+                for (const auto& g : glyphs) sorted.push_back(g.charIndex);
+                std::sort(sorted.begin(), sorted.end());
+                sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+                if (static_cast<size_t>(remaining) < sorted.size()) {
+                    threshold = sorted[remaining];
+                }
+            }
+
+            for (size_t i = 0; i < glyphs.size(); ++i) {
+                if (glyphs[i].charIndex >= threshold) continue;
+
+                auto key = makeKey(glyphs[i], segStyle.fontSize);
+                auto it = glyphMap_.find(key);
+                if (it == glyphMap_.end()) continue;
+
+                const AtlasEntry& entry = it->second;
+                CopyRect cr;
+                cr.srcX = entry.atlasX;
+                cr.srcY = entry.atlasY;
+                cr.srcWidth = entry.atlasWidth;
+                cr.srcHeight = entry.atlasHeight;
+                cr.dstX = curX + glyphs[i].x + entry.offsetX;
+                cr.dstY = drawY + glyphs[i].y + entry.offsetY;
+                cr.displayIndex = globalIndex++;
+                rects.push_back(cr);
+            }
+
+            if (remaining > 0) {
+                std::vector<size_t> chars;
+                chars.reserve(glyphs.size());
+                for (const auto& g : glyphs) chars.push_back(g.charIndex);
+                std::sort(chars.begin(), chars.end());
+                chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
+                size_t segCharCount = chars.size();
+                size_t drawn = std::min(static_cast<size_t>(remaining), segCharCount);
+                remaining -= static_cast<int>(drawn);
+            }
+
+            curX += sl.measuredWidth;
         }
     }
 

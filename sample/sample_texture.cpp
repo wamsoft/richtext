@@ -22,6 +22,7 @@
 #include "richtext/Appearance.hpp"
 #include "richtext/TextLayout.hpp"
 #include "richtext/ParagraphLayout.hpp"
+#include "richtext/StyledLayout.hpp"
 #include "richtext/TextRenderer.hpp"
 #include "richtext/TextureAtlas.hpp"
 
@@ -264,7 +265,7 @@ int main(int argc, char* argv[]) {
     // ラベル用の TextRenderer（画面バッファに直接描画）
     //--------------------------------------------------------------------------
     const int SCREEN_W = 800;
-    const int SCREEN_H = 900;
+    const int SCREEN_H = 1200;
     std::vector<uint32_t> screenBuffer(SCREEN_W * SCREEN_H, 0xFFFFFFFF);
 
     richtext::TextRenderer labelRenderer;
@@ -450,6 +451,89 @@ int main(int argc, char* argv[]) {
             }
 
             y += 40.0f;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Step 5: StyledLayout を使ったテクスチャアトラス逐次表示
+    //--------------------------------------------------------------------------
+    drawLabel(labelRenderer, labelStyle,
+              "6. StyledLayout + TextureAtlas (maxGlyphs = 5, 12, 20, all)",
+              20.0f, y);
+    y += 20.0f;
+
+    {
+        // スタイル定義
+        std::map<std::string, richtext::TextStyle> stStyles;
+        std::map<std::string, richtext::Appearance> stAppearances;
+
+        richtext::TextStyle defStyle;
+        defStyle.fontCollection = collection;
+        defStyle.fontSize = 24.0f;
+        stStyles["default"] = defStyle;
+
+        richtext::Appearance defApp;
+        defApp.addFill(0xFF333333);
+        stAppearances["default"] = defApp;
+
+        // bold + red
+        richtext::TextStyle emphStyle = defStyle;
+        emphStyle.fontWeight = 700;
+        stStyles["emph"] = emphStyle;
+        richtext::Appearance emphApp;
+        emphApp.addFill(0xFFCC0000);
+        stAppearances["emph"] = emphApp;
+
+        // large + blue + outlined
+        richtext::TextStyle hlStyle = defStyle;
+        hlStyle.fontSize = 30.0f;
+        stStyles["hl"] = hlStyle;
+        richtext::Appearance hlApp;
+        hlApp.addStroke(0xFF003366, 1.5f);
+        hlApp.addFill(0xFF0077CC);
+        stAppearances["hl"] = hlApp;
+
+        // StyledLayout で事前計算
+        richtext::StyledLayout styledLayout;
+        styledLayout.layout(
+            utf8ToUtf16(
+                u8"テクスチャ<style name='emph'>アトラス</style>から"
+                u8"<style name='hl'>StyledLayout</style>で逐次表示🚀"
+            ),
+            700.0f, 200.0f,
+            richtext::ParagraphLayout::HAlign::Left,
+            richtext::ParagraphLayout::VAlign::Top,
+            stStyles, stAppearances);
+
+        // アトラスに追加 & コミット
+        atlas.addStyledLayout(styledLayout);
+        atlas.commit();
+
+        size_t totalChars = styledLayout.getTotalCharCount();
+        printf("  StyledLayout: %zu chars, %zu glyphs, %zu lines\n",
+               totalChars, styledLayout.getTotalGlyphCount(),
+               styledLayout.getLineCount());
+
+        int stages[] = {5, 12, 20, -1};
+        for (int maxGlyphs : stages) {
+            char buf[64];
+            if (maxGlyphs < 0) {
+                snprintf(buf, sizeof(buf), "maxGlyphs = -1 (all: %zu chars)", totalChars);
+            } else {
+                snprintf(buf, sizeof(buf), "maxGlyphs = %d / %zu chars", maxGlyphs, totalChars);
+            }
+            drawLabel(labelRenderer, labelStyle, buf, 30.0f, y);
+            y += 16.0f;
+
+            auto stRects = atlas.getCopyRects(styledLayout, 30.0f, y, maxGlyphs);
+            printf("  stage maxGlyphs=%d: %zu copy rects\n", maxGlyphs, stRects.size());
+
+            for (const auto& cr : stRects) {
+                blitCopyRect(screenBuffer.data(), SCREEN_W, SCREEN_H,
+                             texture.data(), ATLAS_W, ATLAS_H, cr);
+            }
+
+            y += 44.0f;
         }
     }
 
