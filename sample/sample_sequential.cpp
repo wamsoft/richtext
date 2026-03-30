@@ -18,6 +18,7 @@
 #include "richtext/Appearance.hpp"
 #include "richtext/TextLayout.hpp"
 #include "richtext/ParagraphLayout.hpp"
+#include "richtext/StyledLayout.hpp"
 #include "richtext/TextRenderer.hpp"
 
 #ifdef _WIN32
@@ -247,6 +248,10 @@ int main(int argc, char* argv[]) {
         totalHeight += static_cast<float>(samples[s].stages.size()) * (BOX_HEIGHT + STAGE_GAP);
         totalHeight += SECTION_GAP;
     }
+    // StyledLayout セクション分
+    totalHeight += LABEL_HEIGHT + 4.0f;
+    totalHeight += 5.0f * (BOX_HEIGHT + STAGE_GAP);  // 5 stages
+    totalHeight += SECTION_GAP;
 
     const int WIDTH = 760;
     const int HEIGHT = static_cast<int>(totalHeight + 40.0f);
@@ -357,6 +362,86 @@ int main(int argc, char* argv[]) {
                 richtext::ParagraphLayout::VAlign::Top,
                 style, appearance,
                 maxGlyphs);
+
+            printf("  stage: maxGlyphs=%d\n", maxGlyphs);
+            y += BOX_HEIGHT + STAGE_GAP;
+        }
+
+        y += SECTION_GAP;
+    }
+
+    //--------------------------------------------------------------------------
+    // StyledLayout を使った逐次表示サンプル
+    //--------------------------------------------------------------------------
+    {
+        printf("\n=== StyledLayout Sequential Display ===\n");
+
+        // セクションタイトル
+        drawLabel(renderer, labelStyle, "StyledLayout: styled tags + maxGlyphs", LEFT, y);
+        y += LABEL_HEIGHT + 4.0f;
+
+        // スタイル定義
+        std::map<std::string, richtext::TextStyle> styles;
+        std::map<std::string, richtext::Appearance> appearances;
+
+        // default スタイル
+        richtext::TextStyle defaultStyle;
+        defaultStyle.fontCollection = multiCollection;
+        defaultStyle.fontSize = 24.0f;
+        styles["default"] = defaultStyle;
+
+        richtext::Appearance defaultApp;
+        defaultApp.addFill(0xFF333333);
+        appearances["default"] = defaultApp;
+
+        // emphasis スタイル（太字・赤）
+        richtext::TextStyle emphStyle = defaultStyle;
+        emphStyle.fontWeight = 700;
+        styles["emph"] = emphStyle;
+
+        richtext::Appearance emphApp;
+        emphApp.addFill(0xFFCC0000);
+        appearances["emph"] = emphApp;
+
+        // highlight スタイル（大きめ・青）
+        richtext::TextStyle hlStyle = defaultStyle;
+        hlStyle.fontSize = 30.0f;
+        styles["hl"] = hlStyle;
+
+        richtext::Appearance hlApp;
+        hlApp.addFill(0xFF0055AA);
+        appearances["hl"] = hlApp;
+
+        // タグ付きテキスト
+        std::u16string styledText = utf8ToUtf16(
+            u8"桜の季節が<style name='emph'>やってきました</style>！"
+            u8"<style name='hl'>美しい花</style>を見に行きましょう✨"
+        );
+
+        // StyledLayout でレイアウト事前計算
+        richtext::StyledLayout styledLayout;
+        styledLayout.layout(styledText, 700.0f, 200.0f,
+                            richtext::ParagraphLayout::HAlign::Left,
+                            richtext::ParagraphLayout::VAlign::Top,
+                            styles, appearances);
+
+        size_t totalChars = styledLayout.getTotalCharCount();
+        size_t totalGlyphsSL = styledLayout.getTotalGlyphCount();
+        printf("  totalChars = %zu, totalGlyphs = %zu, lines = %zu\n",
+               totalChars, totalGlyphsSL, styledLayout.getLineCount());
+
+        // 段階的に描画
+        std::vector<int> styledStages = {5, 10, 15, 20, -1};
+        for (int maxGlyphs : styledStages) {
+            char buf[64];
+            if (maxGlyphs < 0) {
+                snprintf(buf, sizeof(buf), "maxGlyphs = -1 (all: %zu chars)", totalChars);
+            } else {
+                snprintf(buf, sizeof(buf), "maxGlyphs = %d / %zu chars", maxGlyphs, totalChars);
+            }
+            drawLabel(renderer, labelStyle, buf, LEFT, y);
+
+            renderer.drawStyledLayout(styledLayout, LEFT, y + 16.0f, maxGlyphs);
 
             printf("  stage: maxGlyphs=%d\n", maxGlyphs);
             y += BOX_HEIGHT + STAGE_GAP;
