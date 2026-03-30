@@ -36,8 +36,10 @@ cd build/x64-windows/Release
 タグ解析層           src/TagParser.cpp      HTMLライクなタグ→スタイル区間変換
 描画層               src/TextRenderer.cpp   描画統合インタフェース
                      src/GlyphRenderer.cpp  グリフ単位描画・キャッシング
-レイアウト層         src/ParagraphLayout.cpp 複数行レイアウト（行分割）
+レイアウト層         src/StyledLayout.cpp    タグ付きテキストのレイアウト（タグ解析+行分割+セグメント構築）
+                     src/ParagraphLayout.cpp 複数行レイアウト（行分割）
                      src/TextLayout.cpp      1行レイアウト（minikin::Layout）
+テクスチャ管理層     src/TextureAtlas.cpp    グリフのテクスチャアトラス管理
 スタイル管理層       src/TextStyle.cpp       minikin::MinikinPaint 設定
                      src/Appearance.cpp      DrawStyle（塗り/ストローク）
 フォント管理層       src/FontFace.cpp        FreeType ↔ minikin 橋渡し
@@ -50,7 +52,8 @@ cd build/x64-windows/Release
 2. `TextLayout` / `ParagraphLayout` が minikin でグリフ配置を計算
 3. `GlyphRenderer` が `FontFace::getGlyphPath()` で FreeType アウトラインを取得し thorvg パスに変換して描画
 4. カラー絵文字は `FontFace::getGlyphBitmap()` でビットマップとして取得（パスとは別処理）
-5. `TagParser` はタグ付きテキストを解析して `StyleRun` 配列に変換し、`TextRenderer` に渡す
+5. `TagParser` はタグ付きテキストを解析して `StyleRun` 配列に変換し、`StyledLayout` または `TextRenderer` に渡す
+6. `StyledLayout` はタグ解析・行分割・セグメント構築を一括実行し、レイアウト結果を保持。`TextRenderer::drawStyledLayout()` で描画、`TextureAtlas::getCopyRects()` でコピー矩形生成に利用
 
 ### 外部ライブラリ
 
@@ -62,7 +65,8 @@ cd build/x64-windows/Release
 
 - `richtext_lib` — 静的ライブラリ（コア機能）
 - `sample_render.exe` — 動作確認サンプル
-- `sample_sequential.exe` — 逐次表示サンプル
+- `sample_sequential.exe` — 逐次表示サンプル（ParagraphLayout / StyledLayout）
+- `sample_texture.exe` — テクスチャアトラスサンプル（ParagraphLayout / StyledLayout）
 
 ### 参考ドキュメント
 
