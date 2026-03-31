@@ -423,33 +423,6 @@ RectF TextRenderer::drawStyledLayout(const StyledLayout& styledLayout,
 }
 
 //------------------------------------------------------------------------------
-// 計測メソッド
-//------------------------------------------------------------------------------
-
-TextLayout TextRenderer::measureText(const std::u16string& text,
-                                     const TextStyle& style) {
-    TextLayout layout;
-    layout.layout(text, style);
-    return layout;
-}
-
-ParagraphLayout TextRenderer::measureParagraph(const std::u16string& text,
-                                               float maxWidth,
-                                               const TextStyle& style) {
-    ParagraphLayout para;
-    para.layout(text, maxWidth, style);
-    return para;
-}
-
-ParagraphLayout TextRenderer::measureParagraph(const std::u16string& text,
-                                               float maxWidth,
-                                               const std::vector<ParagraphLayout::StyleRun>& styleRuns) {
-    ParagraphLayout para;
-    para.layout(text, maxWidth, styleRuns);
-    return para;
-}
-
-//------------------------------------------------------------------------------
 // グリフ情報取得
 //------------------------------------------------------------------------------
 

@@ -237,41 +237,6 @@ public:
     void drawRect(float x, float y, float width, float height,
                   uint32_t fillColor, uint32_t strokeColor = 0,
                   float strokeWidth = 0);
-
-    // ------------------------------------------------------------------
-    // 計測メソッド（描画はしない）
-    // ------------------------------------------------------------------
-    
-    /**
-     * テキストのサイズ計測
-     * @param text UTF-16テキスト
-     * @param style テキストスタイル
-     * @return TextLayout
-     */
-    TextLayout measureText(const std::u16string& text,
-                           const TextStyle& style);
-    
-    /**
-     * パラグラフのサイズ計測
-     * @param text UTF-16テキスト
-     * @param maxWidth 最大幅
-     * @param style テキストスタイル
-     * @return ParagraphLayout
-     */
-    ParagraphLayout measureParagraph(const std::u16string& text,
-                                     float maxWidth,
-                                     const TextStyle& style);
-    
-    /**
-     * パラグラフのサイズ計測（複数スタイル）
-     * @param text UTF-16テキスト
-     * @param maxWidth 最大幅
-     * @param styleRuns スタイル区間配列
-     * @return ParagraphLayout
-     */
-    ParagraphLayout measureParagraph(const std::u16string& text,
-                                     float maxWidth,
-                                     const std::vector<ParagraphLayout::StyleRun>& styleRuns);
     
     // ------------------------------------------------------------------
     // グリフ情報取得（順次表示用）
