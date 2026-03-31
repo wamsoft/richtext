@@ -341,6 +341,10 @@ int main(int argc, char* argv[]) {
     const uint32_t BORDER_GREEN  = 0xFF44AA44;
     const uint32_t BORDER_ORANGE = 0xFFDD8800;
 
+    // 途中 sync() の確認用: EngineOption::None を外すとここ以降のグリフ背景が黒になる
+    // → TextRenderer::setCanvas() のコメント参照
+    renderer.sync();
+
     //--------------------------------------------------------------------------
     // 4. 基本テキスト（Notoフォント確認）
     //--------------------------------------------------------------------------

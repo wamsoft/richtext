@@ -47,7 +47,11 @@ void TextRenderer::setCanvas(uint32_t* buffer, int width, int height, int pitch)
     }
     
     // SwCanvas を作成
-    auto* rawCanvas = tvg::SwCanvas::gen();
+    // EngineOption::None で dirty region（部分描画最適化）を無効化する。
+    // Default のままだと draw()/sync() 後に fulldraw フラグが false になり、
+    // 次回の draw() 時に preRender() が変更領域を 0x00000000 でクリアしてから
+    // 再描画するため、グリフ周辺の背景が黒で塗りつぶされてしまう。
+    auto* rawCanvas = tvg::SwCanvas::gen(tvg::EngineOption::None);
     canvas_.reset(rawCanvas);
     if (!canvas_) return;
     
