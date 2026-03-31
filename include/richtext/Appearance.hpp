@@ -142,6 +142,17 @@ struct DrawStyle {
     }
     
     /**
+     * 等価比較
+     */
+    bool operator==(const DrawStyle& o) const;
+    bool operator!=(const DrawStyle& o) const { return !(*this == o); }
+
+    /**
+     * ハッシュ値の計算
+     */
+    size_t hash() const;
+
+    /**
      * 単色塗りスタイル作成
      */
     static DrawStyle fill(uint32_t argb, float ox = 0, float oy = 0) {
@@ -269,6 +280,17 @@ public:
      */
     const std::vector<DrawStyle>& getStyles() const { return styles_; }
     
+    /**
+     * 等価比較
+     */
+    bool operator==(const Appearance& o) const { return styles_ == o.styles_; }
+    bool operator!=(const Appearance& o) const { return !(*this == o); }
+
+    /**
+     * ハッシュ値の計算
+     */
+    size_t hash() const;
+
     /**
      * デフォルトの外観を作成（白塗り）
      */

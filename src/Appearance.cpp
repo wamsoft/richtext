@@ -6,7 +6,96 @@
 
 #include "richtext/Appearance.hpp"
 
+#include <cstring>
+#include <functional>
+
 namespace richtext {
+
+// ----------------------------------------------------------------------------
+// ハッシュヘルパー
+// ----------------------------------------------------------------------------
+
+static size_t hashCombine(size_t seed, size_t value) {
+    return seed ^ (value + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+}
+
+static size_t hashFloat(float v) {
+    if (v == 0.0f) v = 0.0f; // normalize -0
+    uint32_t bits;
+    std::memcpy(&bits, &v, sizeof(bits));
+    return std::hash<uint32_t>{}(bits);
+}
+
+// ----------------------------------------------------------------------------
+// DrawStyle 等価比較・ハッシュ
+// ----------------------------------------------------------------------------
+
+bool DrawStyle::operator==(const DrawStyle& o) const {
+    if (type != o.type) return false;
+    if (r != o.r || g != o.g || b != o.b || a != o.a) return false;
+    if (offsetX != o.offsetX || offsetY != o.offsetY) return false;
+    if (type == Type::Stroke) {
+        if (strokeWidth != o.strokeWidth) return false;
+        if (strokeCap != o.strokeCap) return false;
+        if (strokeJoin != o.strokeJoin) return false;
+        if (miterLimit != o.miterLimit) return false;
+        if (dashPattern != o.dashPattern) return false;
+        if (dashOffset != o.dashOffset) return false;
+    }
+    if (gradientType != o.gradientType) return false;
+    if (gradientType != GradientType::None) {
+        if (colorStops.size() != o.colorStops.size()) return false;
+        for (size_t i = 0; i < colorStops.size(); ++i) {
+            const auto& ca = colorStops[i];
+            const auto& cb = o.colorStops[i];
+            if (ca.offset != cb.offset || ca.r != cb.r || ca.g != cb.g ||
+                ca.b != cb.b || ca.a != cb.a) return false;
+        }
+        if (gradX1 != o.gradX1 || gradY1 != o.gradY1 ||
+            gradX2 != o.gradX2 || gradY2 != o.gradY2) return false;
+        if (gradCx != o.gradCx || gradCy != o.gradCy || gradR != o.gradR) return false;
+    }
+    return true;
+}
+
+size_t DrawStyle::hash() const {
+    size_t h = std::hash<int>{}(static_cast<int>(type));
+    h = hashCombine(h, (static_cast<size_t>(r) << 24) | (g << 16) | (b << 8) | a);
+    h = hashCombine(h, hashFloat(offsetX));
+    h = hashCombine(h, hashFloat(offsetY));
+    if (type == Type::Stroke) {
+        h = hashCombine(h, hashFloat(strokeWidth));
+        h = hashCombine(h, std::hash<int>{}(static_cast<int>(strokeCap)));
+        h = hashCombine(h, std::hash<int>{}(static_cast<int>(strokeJoin)));
+        h = hashCombine(h, hashFloat(miterLimit));
+        for (float v : dashPattern) h = hashCombine(h, hashFloat(v));
+        h = hashCombine(h, hashFloat(dashOffset));
+    }
+    h = hashCombine(h, std::hash<int>{}(static_cast<int>(gradientType)));
+    if (gradientType != GradientType::None) {
+        for (const auto& cs : colorStops) {
+            h = hashCombine(h, hashFloat(cs.offset));
+            h = hashCombine(h, (static_cast<size_t>(cs.r) << 24) |
+                               (cs.g << 16) | (cs.b << 8) | cs.a);
+        }
+        h = hashCombine(h, hashFloat(gradX1));
+        h = hashCombine(h, hashFloat(gradY1));
+        h = hashCombine(h, hashFloat(gradX2));
+        h = hashCombine(h, hashFloat(gradY2));
+        h = hashCombine(h, hashFloat(gradCx));
+        h = hashCombine(h, hashFloat(gradCy));
+        h = hashCombine(h, hashFloat(gradR));
+    }
+    return h;
+}
+
+size_t Appearance::hash() const {
+    size_t h = styles_.size();
+    for (const auto& s : styles_) {
+        h = hashCombine(h, s.hash());
+    }
+    return h;
+}
 
 // ----------------------------------------------------------------------------
 // Appearance 実装

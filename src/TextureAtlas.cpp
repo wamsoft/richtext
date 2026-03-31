@@ -47,11 +47,19 @@ void TextureAtlas::clear() {
 // グリフ追加
 //------------------------------------------------------------------------------
 
-TextureAtlas::GlyphKey TextureAtlas::makeKey(const GlyphInfo& glyph, float fontSize) const {
+TextureAtlas::GlyphKey TextureAtlas::makeKey(const GlyphInfo& glyph,
+                                              const TextStyle& style,
+                                              const Appearance& appearance) const {
     GlyphKey key;
     key.fontPtr = reinterpret_cast<uintptr_t>(glyph.font);
     key.glyphId = glyph.glyphId;
-    key.fontSizeQ = static_cast<uint32_t>(fontSize * 64.0f + 0.5f);
+    key.fontSizeQ = static_cast<uint32_t>(style.fontSize * 64.0f + 0.5f);
+    key.fontWidthQ = static_cast<uint32_t>(style.fontWidth * 64.0f + 0.5f);
+    // FontFakery::isFakeBold/isFakeItalic は非 const なのでコピーを使う
+    minikin::FontFakery fakery = glyph.fakery;
+    key.fakeryFlags = (fakery.isFakeBold() ? 1 : 0)
+                    | (fakery.isFakeItalic() ? 2 : 0);
+    key.appearanceHash = appearance.hash();
     return key;
 }
 
@@ -91,7 +99,7 @@ bool TextureAtlas::renderGlyphToAtlas(const GlyphInfo& glyph,
                                        const Appearance& appearance) {
     if (!glyph.font) return false;
 
-    auto key = makeKey(glyph, style.fontSize);
+    auto key = makeKey(glyph, style, appearance);
     if (glyphMap_.count(key)) return true;  // 既にアトラスにある
 
     // グリフのバウンディングサイズを推定
@@ -224,6 +232,7 @@ void TextureAtlas::commit() {
 
 std::vector<CopyRect> TextureAtlas::getCopyRects(const TextLayout& layout,
                                                   float x, float y,
+                                                  const Appearance& appearance,
                                                   int maxGlyphs) const {
     std::vector<CopyRect> rects;
     const auto& glyphs = layout.getGlyphs();
@@ -247,7 +256,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const TextLayout& layout,
     for (size_t i = 0; i < glyphs.size(); ++i) {
         if (glyphs[i].charIndex >= threshold) continue;
 
-        auto key = makeKey(glyphs[i], style.fontSize);
+        auto key = makeKey(glyphs[i], style, appearance);
         auto it = glyphMap_.find(key);
         if (it == glyphMap_.end()) continue;
 
@@ -271,6 +280,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const ParagraphLayout& para,
                                                   ParagraphLayout::HAlign hAlign,
                                                   ParagraphLayout::VAlign vAlign,
                                                   const TextStyle& style,
+                                                  const Appearance& appearance,
                                                   int maxGlyphs) const {
     std::vector<CopyRect> rects;
     int remaining = maxGlyphs;
@@ -285,7 +295,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const ParagraphLayout& para,
 
         TextLayout lineLayout = para.getLineLayout(i, style);
         int lineMax = remaining;
-        auto lineRects = getCopyRects(lineLayout, pos.x, pos.y, lineMax);
+        auto lineRects = getCopyRects(lineLayout, pos.x, pos.y, appearance, lineMax);
 
         for (auto& cr : lineRects) {
             cr.displayIndex = globalIndex++;
@@ -381,7 +391,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
             for (size_t i = 0; i < glyphs.size(); ++i) {
                 if (glyphs[i].charIndex >= threshold) continue;
 
-                auto key = makeKey(glyphs[i], segStyle.fontSize);
+                auto key = makeKey(glyphs[i], segStyle, span.appearance);
                 auto it = glyphMap_.find(key);
                 if (it == glyphMap_.end()) continue;
 

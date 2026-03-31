@@ -80,7 +80,7 @@ public:
 
     /**
      * TextLayout のグリフをアトラスに追加
-     * 同一グリフ（font + glyphId + fontSize）は重複排除される。
+     * 同一グリフ（font + glyphId + style + appearance）は重複排除される。
      * @param layout TextLayout
      * @param appearance 描画外観
      * @return 成功時 true
@@ -118,11 +118,13 @@ public:
      * @param layout TextLayout
      * @param x 描画開始X
      * @param y 描画開始Y（ベースライン）
+     * @param appearance 描画外観（キャッシュキーに使用）
      * @param maxGlyphs 最大グリフ数（-1 = 全て）
      * @return コピー矩形配列（表示順）
      */
     std::vector<CopyRect> getCopyRects(const TextLayout& layout,
                                        float x, float y,
+                                       const Appearance& appearance,
                                        int maxGlyphs = -1) const;
 
     /**
@@ -132,6 +134,7 @@ public:
      * @param hAlign 水平アライン
      * @param vAlign 垂直アライン
      * @param style テキストスタイル
+     * @param appearance 描画外観（キャッシュキーに使用）
      * @param maxGlyphs 最大グリフ数（-1 = 全て）
      * @return コピー矩形配列（表示順）
      */
@@ -140,6 +143,7 @@ public:
                                        ParagraphLayout::HAlign hAlign,
                                        ParagraphLayout::VAlign vAlign,
                                        const TextStyle& style,
+                                       const Appearance& appearance,
                                        int maxGlyphs = -1) const;
 
     /**
@@ -158,12 +162,19 @@ private:
     ITexture* texture_;
 
     // グリフ配置マップ（重複排除用）
+    // キー: font + glyphId + fontSize + fontWidth + fakery + appearance
     struct GlyphKey {
         uintptr_t fontPtr;
         uint32_t glyphId;
-        uint32_t fontSizeQ;  // fontSize * 64 で量子化
+        uint32_t fontSizeQ;       // fontSize * 64 で量子化
+        uint32_t fontWidthQ;      // fontWidth * 64 で量子化
+        uint8_t fakeryFlags;      // bit0: fakeBold, bit1: fakeItalic
+        size_t appearanceHash;    // Appearance のハッシュ値
         bool operator==(const GlyphKey& o) const {
-            return fontPtr == o.fontPtr && glyphId == o.glyphId && fontSizeQ == o.fontSizeQ;
+            return fontPtr == o.fontPtr && glyphId == o.glyphId
+                && fontSizeQ == o.fontSizeQ && fontWidthQ == o.fontWidthQ
+                && fakeryFlags == o.fakeryFlags
+                && appearanceHash == o.appearanceHash;
         }
     };
     struct GlyphKeyHash {
@@ -171,6 +182,9 @@ private:
             size_t h = k.fontPtr;
             h ^= static_cast<size_t>(k.glyphId) * 2654435761u;
             h ^= static_cast<size_t>(k.fontSizeQ) * 40503u;
+            h ^= static_cast<size_t>(k.fontWidthQ) * 16777619u;
+            h ^= static_cast<size_t>(k.fakeryFlags) * 2246822519u;
+            h ^= k.appearanceHash * 13;
             return h;
         }
     };
@@ -195,7 +209,8 @@ private:
     int bufferWidth_ = 0;
     int bufferHeight_ = 0;
 
-    GlyphKey makeKey(const GlyphInfo& glyph, float fontSize) const;
+    GlyphKey makeKey(const GlyphInfo& glyph, const TextStyle& style,
+                     const Appearance& appearance) const;
     bool allocateRect(int width, int height, int& outX, int& outY);
     bool renderGlyphToAtlas(const GlyphInfo& glyph,
                             const TextStyle& style,

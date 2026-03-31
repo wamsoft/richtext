@@ -15,6 +15,7 @@
 #include <string>
 #include <fstream>
 #include <algorithm>
+#include <map>
 
 #include "richtext/FontManager.hpp"
 #include "richtext/FontFace.hpp"
@@ -324,10 +325,11 @@ int main(int argc, char* argv[]) {
     const int NUM_SAMPLES = sizeof(samples) / sizeof(samples[0]);
 
     //--------------------------------------------------------------------------
-    // Step 1: 全サンプルのグリフをアトラスに追加
+    // Step 1: 全レイアウトを準備してアトラスに追加（commit は最後に1回）
     //--------------------------------------------------------------------------
-    printf("\n--- Step 1: Adding glyphs to atlas ---\n");
+    printf("\n--- Step 1: Preparing layouts and adding to atlas ---\n");
 
+    // --- サンプル 1-4: ParagraphLayout ---
     struct PreparedLayout {
         richtext::ParagraphLayout para;
         richtext::TextStyle style;
@@ -357,74 +359,121 @@ int main(int argc, char* argv[]) {
                ok ? "OK" : "OVERFLOW");
     }
 
+    // --- サンプル 5: 逐次表示デモ（ParagraphLayout） ---
+    richtext::TextStyle seqStyle;
+    seqStyle.fontCollection = collection;
+    seqStyle.fontSize = 24.0f;
+
+    richtext::Appearance seqAppearance;
+    seqAppearance.addFill(0xFF005599);
+
+    richtext::ParagraphLayout seqPara;
+    seqPara.layout(
+        utf8ToUtf16(u8"テクスチャアトラスからの逐次表示デモ 🚀 Sequential display from atlas!"),
+        700.0f, seqStyle);
+
+    {
+        bool ok = atlas.addParagraphLayout(seqPara, seqStyle, seqAppearance);
+        printf("  5. Sequential: %zu glyphs, lines=%zu %s\n",
+               seqPara.getTotalGlyphCount(), seqPara.getLineCount(),
+               ok ? "OK" : "OVERFLOW");
+    }
+
+    // --- サンプル 6: StyledLayout 逐次表示デモ ---
+    std::map<std::string, richtext::TextStyle> stStyles;
+    std::map<std::string, richtext::Appearance> stAppearances;
+
+    richtext::TextStyle defStyle;
+    defStyle.fontCollection = collection;
+    defStyle.fontSize = 24.0f;
+    stStyles["default"] = defStyle;
+
+    richtext::Appearance defApp;
+    defApp.addFill(0xFF333333);
+    stAppearances["default"] = defApp;
+
+    richtext::TextStyle emphStyle = defStyle;
+    emphStyle.fontWeight = 700;
+    stStyles["emph"] = emphStyle;
+    richtext::Appearance emphApp;
+    emphApp.addFill(0xFFCC0000);
+    stAppearances["emph"] = emphApp;
+
+    richtext::TextStyle hlStyle = defStyle;
+    hlStyle.fontSize = 30.0f;
+    stStyles["hl"] = hlStyle;
+    richtext::Appearance hlApp;
+    hlApp.addStroke(0xFF003366, 1.5f);
+    hlApp.addFill(0xFF0077CC);
+    stAppearances["hl"] = hlApp;
+
+    richtext::StyledLayout styledLayout;
+    styledLayout.layout(
+        utf8ToUtf16(
+            u8"テクスチャ<style name='emph'>アトラス</style>から"
+            u8"<style name='hl'>StyledLayout</style>で逐次表示🚀"
+        ),
+        700.0f, 200.0f,
+        richtext::ParagraphLayout::HAlign::Left,
+        richtext::ParagraphLayout::VAlign::Top,
+        stStyles, stAppearances);
+
+    {
+        bool ok = atlas.addStyledLayout(styledLayout);
+        size_t totalChars = styledLayout.getTotalCharCount();
+        printf("  6. StyledLayout: %zu chars, %zu glyphs, %zu lines %s\n",
+               totalChars, styledLayout.getTotalGlyphCount(),
+               styledLayout.getLineCount(),
+               ok ? "OK" : "OVERFLOW");
+    }
+
     //--------------------------------------------------------------------------
-    // Step 2: アトラスをテクスチャに書き込み
+    // Step 2: アトラスをテクスチャに一括書き込み
     //--------------------------------------------------------------------------
     printf("\n--- Step 2: Committing atlas to texture ---\n");
     atlas.commit();
 
-    // アトラス内容を BMP で出力
     saveBMP("output_atlas.bmp", texture.data(), ATLAS_W, ATLAS_H);
 
     //--------------------------------------------------------------------------
-    // Step 3: CopyRect で画面バッファに転送
+    // Step 3: CopyRect で画面バッファに転送（全セクション）
     //--------------------------------------------------------------------------
     printf("\n--- Step 3: Blitting from atlas to screen ---\n");
 
     float y = 20.0f;
 
+    // --- サンプル 1-4 ---
     for (int i = 0; i < NUM_SAMPLES; ++i) {
         auto& s = samples[i];
         auto& pl = layouts[i];
 
-        // セクションラベル（TextRenderer で直接描画）
         drawLabel(labelRenderer, labelStyle, s.title, 20.0f, y);
         y += 20.0f;
 
-        // CopyRect 取得
         richtext::RectF rect(20.0f, y, 700.0f, 200.0f);
         auto copyRects = atlas.getCopyRects(
             pl.para, rect,
             richtext::ParagraphLayout::HAlign::Left,
             richtext::ParagraphLayout::VAlign::Top,
-            pl.style);
+            pl.style, pl.appearance);
 
         printf("  %s: %zu copy rects\n", s.title, copyRects.size());
 
-        // アトラスから画面にブリット
         for (const auto& cr : copyRects) {
             blitCopyRect(screenBuffer.data(), SCREEN_W, SCREEN_H,
                          texture.data(), ATLAS_W, ATLAS_H, cr);
         }
 
-        // 次のセクション位置
         y += pl.para.getTotalHeight() + 30.0f;
     }
 
-    //--------------------------------------------------------------------------
-    // Step 4: 逐次表示デモ（同じテキストを段階的に表示）
-    //--------------------------------------------------------------------------
+    // --- サンプル 5: 逐次表示デモ ---
     drawLabel(labelRenderer, labelStyle,
               "5. Sequential display via CopyRect (maxGlyphs = 5, 15, 30, all)",
               20.0f, y);
     y += 20.0f;
 
     {
-        richtext::TextStyle seqStyle;
-        seqStyle.fontCollection = collection;
-        seqStyle.fontSize = 24.0f;
-
-        richtext::Appearance seqAppearance;
-        seqAppearance.addFill(0xFF005599);
-
-        richtext::ParagraphLayout seqPara;
-        seqPara.layout(
-            utf8ToUtf16(u8"テクスチャアトラスからの逐次表示デモ 🚀 Sequential display from atlas!"),
-            700.0f, seqStyle);
-
-        atlas.addParagraphLayout(seqPara, seqStyle, seqAppearance);
-        atlas.commit();
-
         size_t total = seqPara.getTotalGlyphCount();
         int stages[] = {5, 15, 30, -1};
 
@@ -443,7 +492,7 @@ int main(int argc, char* argv[]) {
                 seqPara, rect,
                 richtext::ParagraphLayout::HAlign::Left,
                 richtext::ParagraphLayout::VAlign::Top,
-                seqStyle, maxGlyphs);
+                seqStyle, seqAppearance, maxGlyphs);
 
             for (const auto& cr : rects) {
                 blitCopyRect(screenBuffer.data(), SCREEN_W, SCREEN_H,
@@ -454,65 +503,14 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    //--------------------------------------------------------------------------
-    // Step 5: StyledLayout を使ったテクスチャアトラス逐次表示
-    //--------------------------------------------------------------------------
+    // --- サンプル 6: StyledLayout 逐次表示デモ ---
     drawLabel(labelRenderer, labelStyle,
               "6. StyledLayout + TextureAtlas (maxGlyphs = 5, 12, 20, all)",
               20.0f, y);
     y += 20.0f;
 
     {
-        // スタイル定義
-        std::map<std::string, richtext::TextStyle> stStyles;
-        std::map<std::string, richtext::Appearance> stAppearances;
-
-        richtext::TextStyle defStyle;
-        defStyle.fontCollection = collection;
-        defStyle.fontSize = 24.0f;
-        stStyles["default"] = defStyle;
-
-        richtext::Appearance defApp;
-        defApp.addFill(0xFF333333);
-        stAppearances["default"] = defApp;
-
-        // bold + red
-        richtext::TextStyle emphStyle = defStyle;
-        emphStyle.fontWeight = 700;
-        stStyles["emph"] = emphStyle;
-        richtext::Appearance emphApp;
-        emphApp.addFill(0xFFCC0000);
-        stAppearances["emph"] = emphApp;
-
-        // large + blue + outlined
-        richtext::TextStyle hlStyle = defStyle;
-        hlStyle.fontSize = 30.0f;
-        stStyles["hl"] = hlStyle;
-        richtext::Appearance hlApp;
-        hlApp.addStroke(0xFF003366, 1.5f);
-        hlApp.addFill(0xFF0077CC);
-        stAppearances["hl"] = hlApp;
-
-        // StyledLayout で事前計算
-        richtext::StyledLayout styledLayout;
-        styledLayout.layout(
-            utf8ToUtf16(
-                u8"テクスチャ<style name='emph'>アトラス</style>から"
-                u8"<style name='hl'>StyledLayout</style>で逐次表示🚀"
-            ),
-            700.0f, 200.0f,
-            richtext::ParagraphLayout::HAlign::Left,
-            richtext::ParagraphLayout::VAlign::Top,
-            stStyles, stAppearances);
-
-        // アトラスに追加 & コミット
-        atlas.addStyledLayout(styledLayout);
-        atlas.commit();
-
         size_t totalChars = styledLayout.getTotalCharCount();
-        printf("  StyledLayout: %zu chars, %zu glyphs, %zu lines\n",
-               totalChars, styledLayout.getTotalGlyphCount(),
-               styledLayout.getLineCount());
 
         int stages[] = {5, 12, 20, -1};
         for (int maxGlyphs : stages) {
