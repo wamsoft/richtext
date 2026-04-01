@@ -9,34 +9,34 @@ endif()
 
 if(NOT TARGET thorvg)
     # ThorVG configuration - static library, SW engine only
-    set(TVG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-    set(TVG_THREADS ON CACHE BOOL "" FORCE)
-    set(TVG_PARTIAL ON CACHE BOOL "" FORCE)
-    set(TVG_SIMD ON CACHE BOOL "" FORCE)
-    set(TVG_LOG OFF CACHE BOOL "" FORCE)
-    set(TVG_FILE_IO OFF CACHE BOOL "" FORCE)
+    option(TVG_BUILD_SHARED "Build shared library" OFF)
+    option(TVG_THREADS "Enable multi-threading task scheduler" ON)
+    option(TVG_PARTIAL "Enable Partial Rendering" ON)
+    option(TVG_SIMD "Enable CPU Vectorization (SIMD)" ON)
+    option(TVG_LOG "Enable log message" OFF)
+    option(TVG_FILE_IO "Enable File IO calls" OFF)
 
     # Enable SW engine only
-    set(TVG_ENGINE_SW ON CACHE BOOL "" FORCE)
-    set(TVG_ENGINE_GL OFF CACHE BOOL "" FORCE)
-    set(TVG_ENGINE_WG OFF CACHE BOOL "" FORCE)
+    option(TVG_ENGINE_SW "Enable Software Rasterizer Engine" ON)
+    option(TVG_ENGINE_GL "Enable OpenGL Rasterizer Engine" OFF)
+    option(TVG_ENGINE_WG "Enable WebGPU Rasterizer Engine" OFF)
 
     # Loaders - enable what we need
-    set(TVG_LOADER_SVG OFF CACHE BOOL "" FORCE)
-    set(TVG_LOADER_PNG OFF CACHE BOOL "" FORCE)
-    set(TVG_LOADER_JPG OFF CACHE BOOL "" FORCE)
-    set(TVG_LOADER_LOTTIE OFF CACHE BOOL "" FORCE)
-    set(TVG_LOADER_TTF OFF CACHE BOOL "" FORCE)
-    set(TVG_LOADER_WEBP OFF CACHE BOOL "" FORCE)
+    option(TVG_LOADER_SVG "Enable SVG Loader" OFF)
+    option(TVG_LOADER_PNG "Enable PNG Loader" OFF)
+    option(TVG_LOADER_JPG "Enable JPG Loader" OFF)
+    option(TVG_LOADER_LOTTIE "Enable Lottie Loader" OFF)
+    option(TVG_LOADER_TTF "Enable TTF Loader" OFF)
+    option(TVG_LOADER_WEBP "Enable WebP Loader" OFF)
 
     # Disable savers and tools
-    set(TVG_SAVER_GIF OFF CACHE BOOL "" FORCE)
-    set(TVG_TOOL_SVG2PNG OFF CACHE BOOL "" FORCE)
-    set(TVG_TOOL_LOTTIE2GIF OFF CACHE BOOL "" FORCE)
+    option(TVG_SAVER_GIF "Enable GIF Saver" OFF)
+    option(TVG_TOOL_SVG2PNG "Build svg2png tool" OFF)
+    option(TVG_TOOL_LOTTIE2GIF "Build lottie2gif tool" OFF)
 
     # Disable bindings and tests
-    set(TVG_BINDINGS_CAPI OFF CACHE BOOL "" FORCE)
-    set(TVG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    option(TVG_BINDINGS_CAPI "Enable C API bindings" OFF)
+    option(TVG_BUILD_TESTS "Build unit tests" OFF)
 
     add_subdirectory(ext/thorvg)
 endif()
