@@ -19,6 +19,7 @@ struct TimingEntry {
         Wait,       ///< 時間待ち（文字なし、待ち時間のみ）
         Sync,       ///< 時間同期（絶対時間 or ラベル参照）
         KeyWait,    ///< キー入力待ち
+        Start,      ///< 区間開始（diff/all を定義）
     };
 
     Type type = Type::Char;
@@ -36,6 +37,10 @@ struct TimingEntry {
     // 同期パラメータ（Type::Sync 用）
     float syncMs = -1.0f;           ///< %D: 絶対同期時間（ms）
     std::string syncLabel;          ///< %D$: ラベル名（空 = 未指定）
+
+    // 区間パラメータ（Type::Start 用）
+    float startDiff = 0.0f;         ///< 1文字あたり基準表示時間（ms）
+    float startAll = 0.0f;          ///< 全体表示時間（ms、0 = 自動）
 };
 
 /**
@@ -60,9 +65,10 @@ using LabelResolver = std::function<float(const std::string& label)>;
 /**
  * タイミング情報を解決し、各文字の表示開始時間を計算する
  *
+ * Type::Start エントリで区間を区切り、各区間の diff/all に基づいて計算する。
+ * 冒頭に Start がない場合の初期値は diff=0, all=0（瞬間表示）。
+ *
  * @param entries       TimingEntry 配列
- * @param diff          1文字あたり基準表示時間（ms）
- * @param all           全体表示時間（ms、0 = 自動）
  * @param timeScale     時間スケール係数
  * @param widthTimeScale 文字幅による時間補正を行うか
  * @param charWidths    各文字の幅配列（widthTimeScale 用）
@@ -72,8 +78,6 @@ using LabelResolver = std::function<float(const std::string& label)>;
  */
 std::vector<ResolvedTiming> resolveTimings(
     const std::vector<TimingEntry>& entries,
-    float diff,
-    float all,
     float timeScale,
     bool widthTimeScale,
     const std::vector<float>& charWidths,

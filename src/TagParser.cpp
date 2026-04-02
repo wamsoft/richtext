@@ -513,6 +513,18 @@ bool TagParser::parseTag(
     // ------------------------------------------------------------------
     // 新規タグ: タイミング・リンク・グラフィック・アライン・ピッチ
     // ------------------------------------------------------------------
+    } else if (tagName == "start") {
+        isVoidTag = true;
+        if (!options_.ignoreDelay) {
+            TimingEntry entry;
+            entry.type = TimingEntry::Type::Start;
+            entry.charIndex = static_cast<int>(state.plainText.size());
+            auto it = attrs.find("diff");
+            if (it != attrs.end()) entry.startDiff = parseFloat(it->second);
+            it = attrs.find("all");
+            if (it != attrs.end()) entry.startAll = parseFloat(it->second);
+            state.timings.push_back(entry);
+        }
     } else if (tagName == "delay") {
         isVoidTag = true;
         if (!options_.ignoreDelay) {

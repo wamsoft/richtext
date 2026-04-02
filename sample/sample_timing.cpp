@@ -150,6 +150,7 @@ int main(int argc, char* argv[]) {
     // テストテキスト: delay, wait, sync, keywait, graph, link を含む
     //--------------------------------------------------------------------------
     std::u16string taggedText = utf8ToUtf16(
+        u8"<start diff='50' all='0'/>"  // 区間開始: 1文字50ms
         u8"こんにちは"
         u8"<delay value='50%'/>"        // delay 50%
         u8"世界！"
@@ -216,6 +217,10 @@ int main(int argc, char* argv[]) {
             printf("  [%3zu] KeyWait  charIndex=%d\n",
                    i, t.charIndex);
             break;
+        case richtext::TimingEntry::Type::Start:
+            printf("  [%3zu] Start    charIndex=%d  diff=%.3f  all=%.1f\n",
+                   i, t.charIndex, t.startDiff, t.startAll);
+            break;
         }
     }
 
@@ -246,8 +251,6 @@ int main(int argc, char* argv[]) {
     //--------------------------------------------------------------------------
     printf("\n--- Resolved Timings ---\n");
 
-    float diff = 50.0f;   // 1文字あたり 50ms
-    float all = 0.0f;     // 自動計算
     float timeScale = 1.0f;
     bool widthTimeScale = false;
     std::vector<float> charWidths;
@@ -276,7 +279,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<richtext::KeyWaitInfo> keyWaits;
     auto resolved = richtext::resolveTimings(
-        parsed.timings, diff, all, timeScale,
+        parsed.timings, timeScale,
         widthTimeScale, charWidths,
         labelResolver, &keyWaits);
 
