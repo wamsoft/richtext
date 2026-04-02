@@ -20,7 +20,6 @@ void StyledLayout::layout(const std::u16string& text,
                           float lineSpacing) {
     valid_ = false;
     lineLayouts_.clear();
-    totalGlyphCount_ = 0;
     totalCharCount_ = 0;
 
     hAlign_ = hAlign;
@@ -102,9 +101,8 @@ void StyledLayout::layout(const std::u16string& text,
             sl.measuredWidth = para_.getRunWidth(seg.segStart, seg.segEnd);
             ll.totalWidth += sl.measuredWidth;
 
-            // グリフ数・文字数の集計
+            // 文字数の集計
             const auto& glyphs = sl.layout.getGlyphs();
-            totalGlyphCount_ += glyphs.size();
             for (const auto& g : glyphs) {
                 allCharIndices.insert(seg.segStart + g.charIndex);
             }

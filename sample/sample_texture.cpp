@@ -354,7 +354,7 @@ int main(int argc, char* argv[]) {
         bool ok = atlas.addParagraphLayout(pl.para, pl.style, pl.appearance);
         printf("  %s: %zu glyphs, lines=%zu %s\n",
                s.title,
-               pl.para.getTotalGlyphCount(),
+               pl.para.getTotalCharCount(),
                pl.para.getLineCount(),
                ok ? "OK" : "OVERFLOW");
     }
@@ -375,7 +375,7 @@ int main(int argc, char* argv[]) {
     {
         bool ok = atlas.addParagraphLayout(seqPara, seqStyle, seqAppearance);
         printf("  5. Sequential: %zu glyphs, lines=%zu %s\n",
-               seqPara.getTotalGlyphCount(), seqPara.getLineCount(),
+               seqPara.getTotalCharCount(), seqPara.getLineCount(),
                ok ? "OK" : "OVERFLOW");
     }
 
@@ -422,7 +422,7 @@ int main(int argc, char* argv[]) {
         bool ok = atlas.addStyledLayout(styledLayout);
         size_t totalChars = styledLayout.getTotalCharCount();
         printf("  6. StyledLayout: %zu chars, %zu glyphs, %zu lines %s\n",
-               totalChars, styledLayout.getTotalGlyphCount(),
+               totalChars, styledLayout.getTotalCharCount(),
                styledLayout.getLineCount(),
                ok ? "OK" : "OVERFLOW");
     }
@@ -469,20 +469,20 @@ int main(int argc, char* argv[]) {
 
     // --- サンプル 5: 逐次表示デモ ---
     drawLabel(labelRenderer, labelStyle,
-              "5. Sequential display via CopyRect (maxGlyphs = 5, 15, 30, all)",
+              "5. Sequential display via CopyRect (maxChars = 5, 15, 30, all)",
               20.0f, y);
     y += 20.0f;
 
     {
-        size_t total = seqPara.getTotalGlyphCount();
+        size_t total = seqPara.getTotalCharCount();
         int stages[] = {5, 15, 30, -1};
 
-        for (int maxGlyphs : stages) {
+        for (int maxChars : stages) {
             char buf[64];
-            if (maxGlyphs < 0) {
-                snprintf(buf, sizeof(buf), "maxGlyphs = -1 (all: %zu)", total);
+            if (maxChars < 0) {
+                snprintf(buf, sizeof(buf), "maxChars = -1 (all: %zu)", total);
             } else {
-                snprintf(buf, sizeof(buf), "maxGlyphs = %d / %zu", maxGlyphs, total);
+                snprintf(buf, sizeof(buf), "maxChars = %d / %zu", maxChars, total);
             }
             drawLabel(labelRenderer, labelStyle, buf, 30.0f, y);
             y += 16.0f;
@@ -492,7 +492,7 @@ int main(int argc, char* argv[]) {
                 seqPara, rect,
                 richtext::ParagraphLayout::HAlign::Left,
                 richtext::ParagraphLayout::VAlign::Top,
-                seqStyle, seqAppearance, maxGlyphs);
+                seqStyle, seqAppearance, maxChars);
 
             for (const auto& cr : rects) {
                 blitCopyRect(screenBuffer.data(), SCREEN_W, SCREEN_H,
@@ -505,7 +505,7 @@ int main(int argc, char* argv[]) {
 
     // --- サンプル 6: StyledLayout 逐次表示デモ ---
     drawLabel(labelRenderer, labelStyle,
-              "6. StyledLayout + TextureAtlas (maxGlyphs = 5, 12, 20, all)",
+              "6. StyledLayout + TextureAtlas (maxChars = 5, 12, 20, all)",
               20.0f, y);
     y += 20.0f;
 
@@ -513,18 +513,18 @@ int main(int argc, char* argv[]) {
         size_t totalChars = styledLayout.getTotalCharCount();
 
         int stages[] = {5, 12, 20, -1};
-        for (int maxGlyphs : stages) {
+        for (int maxChars : stages) {
             char buf[64];
-            if (maxGlyphs < 0) {
-                snprintf(buf, sizeof(buf), "maxGlyphs = -1 (all: %zu chars)", totalChars);
+            if (maxChars < 0) {
+                snprintf(buf, sizeof(buf), "maxChars = -1 (all: %zu chars)", totalChars);
             } else {
-                snprintf(buf, sizeof(buf), "maxGlyphs = %d / %zu chars", maxGlyphs, totalChars);
+                snprintf(buf, sizeof(buf), "maxChars = %d / %zu chars", maxChars, totalChars);
             }
             drawLabel(labelRenderer, labelStyle, buf, 30.0f, y);
             y += 16.0f;
 
-            auto stRects = atlas.getCopyRects(styledLayout, 30.0f, y, maxGlyphs);
-            printf("  stage maxGlyphs=%d: %zu copy rects\n", maxGlyphs, stRects.size());
+            auto stRects = atlas.getCopyRects(styledLayout, 30.0f, y, maxChars);
+            printf("  stage maxChars=%d: %zu copy rects\n", maxChars, stRects.size());
 
             for (const auto& cr : stRects) {
                 blitCopyRect(screenBuffer.data(), SCREEN_W, SCREEN_H,

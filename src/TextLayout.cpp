@@ -11,6 +11,9 @@
 #include <minikin/MinikinExtent.h>
 #include <minikin/MinikinRect.h>
 
+#include <algorithm>
+#include <vector>
+
 namespace richtext {
 
 //------------------------------------------------------------------------------
@@ -123,6 +126,16 @@ void TextLayout::buildGlyphInfos() {
 
         glyphs_.push_back(info);
     }
+}
+
+size_t TextLayout::getCharCount() const {
+    if (glyphs_.empty()) return 0;
+    std::vector<size_t> chars;
+    chars.reserve(glyphs_.size());
+    for (const auto& g : glyphs_) chars.push_back(g.charIndex);
+    std::sort(chars.begin(), chars.end());
+    chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
+    return chars.size();
 }
 
 } // namespace richtext

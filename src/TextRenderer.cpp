@@ -142,7 +142,7 @@ RectF TextRenderer::drawText(const std::u16string& text,
 RectF TextRenderer::drawLayout(const TextLayout& layout,
                                float x, float y,
                                const Appearance& appearance,
-                               int maxGlyphs) {
+                               int maxChars) {
     if (!glyphRenderer_) {
         return RectF();
     }
@@ -151,8 +151,8 @@ RectF TextRenderer::drawLayout(const TextLayout& layout,
     const auto& glyphs = layout.getGlyphs();
     const TextStyle& style = layout.getStyle();
 
-    if (maxGlyphs >= 0) {
-        // 論理順（charIndex 順）で先頭 maxGlyphs 文字分のグリフのみ描画
+    if (maxChars >= 0) {
+        // 論理順（charIndex 順）で先頭 maxChars 文字分のグリフのみ描画
         // Bidi テキストではビジュアル順と論理順が異なるため、
         // charIndex でフィルタリングする必要がある
         // まず論理順での N 番目の文字位置を特定
@@ -161,12 +161,12 @@ RectF TextRenderer::drawLayout(const TextLayout& layout,
         for (const auto& g : glyphs) {
             charIndices.push_back(g.charIndex);
         }
-        // charIndex をソートして重複除去し、先頭 maxGlyphs 文字の charIndex を得る
+        // charIndex をソートして重複除去し、先頭 maxChars 文字の charIndex を得る
         std::vector<size_t> sorted = charIndices;
         std::sort(sorted.begin(), sorted.end());
         sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
-        size_t threshold = (static_cast<size_t>(maxGlyphs) < sorted.size())
-                           ? sorted[maxGlyphs]
+        size_t threshold = (static_cast<size_t>(maxChars) < sorted.size())
+                           ? sorted[maxChars]
                            : SIZE_MAX;
         for (size_t i = 0; i < glyphs.size(); ++i) {
             if (glyphs[i].charIndex < threshold) {
@@ -194,10 +194,10 @@ RectF TextRenderer::drawParagraphLayout(const ParagraphLayout& para,
                                          ParagraphLayout::VAlign vAlign,
                                          const TextStyle& style,
                                          const Appearance& appearance,
-                                         int maxGlyphs) {
+                                         int maxChars) {
     RectF totalBounds;
     bool first = true;
-    int remaining = maxGlyphs;
+    int remaining = maxChars;
 
     for (size_t i = 0; i < para.getLineCount(); ++i) {
         if (remaining == 0) break;
@@ -213,13 +213,7 @@ RectF TextRenderer::drawParagraphLayout(const ParagraphLayout& para,
 
         if (remaining > 0) {
             // 論理文字数（ユニーク charIndex 数）で減算
-            const auto& glyphs = lineLayout.getGlyphs();
-            std::vector<size_t> chars;
-            chars.reserve(glyphs.size());
-            for (const auto& g : glyphs) chars.push_back(g.charIndex);
-            std::sort(chars.begin(), chars.end());
-            chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
-            size_t lineCharCount = chars.size();
+            size_t lineCharCount = lineLayout.getCharCount();
             size_t drawn = std::min(static_cast<size_t>(remaining), lineCharCount);
             remaining -= static_cast<int>(drawn);
         }
@@ -291,7 +285,7 @@ RectF TextRenderer::drawStyledText(const std::u16string& text,
 
 RectF TextRenderer::drawStyledLayout(const StyledLayout& styledLayout,
                                      float x, float y,
-                                     int maxGlyphs) {
+                                     int maxChars) {
     if (!glyphRenderer_ || !styledLayout.isValid()) {
         return RectF();
     }
@@ -307,7 +301,7 @@ RectF TextRenderer::drawStyledLayout(const StyledLayout& styledLayout,
 
     RectF totalBounds;
     bool first = true;
-    int remaining = maxGlyphs;
+    int remaining = maxChars;
 
     for (const auto& ll : lineLayouts) {
         if (remaining == 0) break;
@@ -355,13 +349,7 @@ RectF TextRenderer::drawStyledLayout(const StyledLayout& styledLayout,
 
             if (remaining > 0) {
                 // 論理文字数（ユニーク charIndex 数）で減算
-                const auto& glyphs = sl.layout.getGlyphs();
-                std::vector<size_t> chars;
-                chars.reserve(glyphs.size());
-                for (const auto& g : glyphs) chars.push_back(g.charIndex);
-                std::sort(chars.begin(), chars.end());
-                chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
-                size_t segCharCount = chars.size();
+                size_t segCharCount = sl.layout.getCharCount();
                 size_t drawn = std::min(static_cast<size_t>(remaining), segCharCount);
                 remaining -= static_cast<int>(drawn);
             }

@@ -70,7 +70,7 @@ void ParagraphLayout::layout(const std::u16string& text,
     maxWidth_ = maxWidth;
     lines_.clear();
     totalHeight_ = 0;
-    glyphCountCached_ = false;
+    charCountCached_ = false;
 
     if (text.empty() || styleRuns.empty()) {
         return;
@@ -224,8 +224,8 @@ TextLayout ParagraphLayout::getLineLayout(size_t lineIndex, const TextStyle& sty
     return layout;
 }
 
-size_t ParagraphLayout::getTotalGlyphCount() const {
-    if (glyphCountCached_) return cachedTotalGlyphCount_;
+size_t ParagraphLayout::getTotalCharCount() const {
+    if (charCountCached_) return cachedTotalCharCount_;
 
     size_t total = 0;
     TextStyle defaultStyle;
@@ -233,18 +233,11 @@ size_t ParagraphLayout::getTotalGlyphCount() const {
 
     for (size_t i = 0; i < lines_.size(); ++i) {
         TextLayout lineLayout = getLineLayout(i, defaultStyle);
-        // 論理文字数（ユニーク charIndex 数）でカウント
-        const auto& glyphs = lineLayout.getGlyphs();
-        std::vector<size_t> chars;
-        chars.reserve(glyphs.size());
-        for (const auto& g : glyphs) chars.push_back(g.charIndex);
-        std::sort(chars.begin(), chars.end());
-        chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
-        total += chars.size();
+        total += lineLayout.getCharCount();
     }
 
-    cachedTotalGlyphCount_ = total;
-    glyphCountCached_ = true;
+    cachedTotalCharCount_ = total;
+    charCountCached_ = true;
     return total;
 }
 

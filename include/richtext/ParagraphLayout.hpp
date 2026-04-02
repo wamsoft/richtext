@@ -198,11 +198,11 @@ public:
     const std::u16string& getText() const { return text_; }
 
     /**
-     * 全行のグリフ数合計を取得
-     * 各行の TextLayout を生成してグリフ数を合算する。
-     * @return 総グリフ数
+     * 全行の文字数合計を取得
+     * 各行の TextLayout を生成してユニーク charIndex 数を合算する。
+     * @return 総文字数
      */
-    size_t getTotalGlyphCount() const;
+    size_t getTotalCharCount() const;
 
 private:
     std::u16string text_;
@@ -213,8 +213,8 @@ private:
     float maxWidth_ = 0;
     float lineSpacing_ = 0;
     BreakStrategy breakStrategy_ = BreakStrategy::HighQuality;
-    mutable size_t cachedTotalGlyphCount_ = 0;
-    mutable bool glyphCountCached_ = false;
+    mutable size_t cachedTotalCharCount_ = 0;
+    mutable bool charCountCached_ = false;
     
     // minikin の結果キャッシュ
     std::unique_ptr<minikin::MeasuredText> measuredText_;

@@ -233,21 +233,21 @@ void TextureAtlas::commit() {
 std::vector<CopyRect> TextureAtlas::getCopyRects(const TextLayout& layout,
                                                   float x, float y,
                                                   const Appearance& appearance,
-                                                  int maxGlyphs) const {
+                                                  int maxChars) const {
     std::vector<CopyRect> rects;
     const auto& glyphs = layout.getGlyphs();
     const TextStyle& style = layout.getStyle();
 
-    // 論理順（charIndex 順）で先頭 maxGlyphs 文字分のグリフを選択
+    // 論理順（charIndex 順）で先頭 maxChars 文字分のグリフを選択
     size_t threshold = SIZE_MAX;
-    if (maxGlyphs >= 0) {
+    if (maxChars >= 0) {
         std::vector<size_t> sorted;
         sorted.reserve(glyphs.size());
         for (const auto& g : glyphs) sorted.push_back(g.charIndex);
         std::sort(sorted.begin(), sorted.end());
         sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
-        if (static_cast<size_t>(maxGlyphs) < sorted.size()) {
-            threshold = sorted[maxGlyphs];
+        if (static_cast<size_t>(maxChars) < sorted.size()) {
+            threshold = sorted[maxChars];
         }
     }
 
@@ -269,6 +269,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const TextLayout& layout,
         cr.dstX = x + glyphs[i].x + entry.offsetX;
         cr.dstY = y + glyphs[i].y + entry.offsetY;
         cr.displayIndex = displayIdx++;
+        cr.charIndex = static_cast<int>(glyphs[i].charIndex);
         rects.push_back(cr);
     }
 
@@ -281,9 +282,9 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const ParagraphLayout& para,
                                                   ParagraphLayout::VAlign vAlign,
                                                   const TextStyle& style,
                                                   const Appearance& appearance,
-                                                  int maxGlyphs) const {
+                                                  int maxChars) const {
     std::vector<CopyRect> rects;
-    int remaining = maxGlyphs;
+    int remaining = maxChars;
     int globalIndex = 0;
 
     for (size_t i = 0; i < para.getLineCount(); ++i) {
@@ -304,13 +305,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const ParagraphLayout& para,
 
         if (remaining > 0) {
             // 論理文字数（ユニーク charIndex 数）で減算
-            const auto& glyphs = lineLayout.getGlyphs();
-            std::vector<size_t> chars;
-            chars.reserve(glyphs.size());
-            for (const auto& g : glyphs) chars.push_back(g.charIndex);
-            std::sort(chars.begin(), chars.end());
-            chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
-            size_t lineCharCount = chars.size();
+            size_t lineCharCount = lineLayout.getCharCount();
             size_t drawn = std::min(static_cast<size_t>(remaining), lineCharCount);
             remaining -= static_cast<int>(drawn);
         }
@@ -321,7 +316,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const ParagraphLayout& para,
 
 std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayout,
                                                   float x, float y,
-                                                  int maxGlyphs,
+                                                  int maxChars,
                                                   const std::vector<ResolvedTiming>* resolvedTimings) const {
     std::vector<CopyRect> rects;
     if (!styledLayout.isValid()) return rects;
@@ -345,7 +340,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
     // リンク情報の参照
     const auto& links = parsed.links;
 
-    int remaining = maxGlyphs;
+    int remaining = maxChars;
     int globalIndex = 0;
 
     for (const auto& ll : lineLayouts) {
@@ -387,7 +382,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
             const TextStyle& segStyle = sl.layout.getStyle();
             const auto& glyphs = sl.layout.getGlyphs();
 
-            // maxGlyphs 処理用に threshold を計算
+            // maxChars 処理用に threshold を計算
             size_t threshold = SIZE_MAX;
             if (remaining >= 0) {
                 std::vector<size_t> sorted;
@@ -419,6 +414,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
 
                 // plainText 上の charIndex を計算
                 size_t plainCharIdx = sl.segStart + glyphs[i].charIndex;
+                cr.charIndex = static_cast<int>(plainCharIdx);
 
                 // delay を設定
                 if (!delayMap.empty()) {
@@ -440,12 +436,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
             }
 
             if (remaining > 0) {
-                std::vector<size_t> chars;
-                chars.reserve(glyphs.size());
-                for (const auto& g : glyphs) chars.push_back(g.charIndex);
-                std::sort(chars.begin(), chars.end());
-                chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
-                size_t segCharCount = chars.size();
+                size_t segCharCount = sl.layout.getCharCount();
                 size_t drawn = std::min(static_cast<size_t>(remaining), segCharCount);
                 remaining -= static_cast<int>(drawn);
             }

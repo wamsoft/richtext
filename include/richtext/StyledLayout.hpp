@@ -104,9 +104,6 @@ public:
     /** 最大高さ */
     float getMaxHeight() const { return maxHeight_; }
 
-    /** 総グリフ数 */
-    size_t getTotalGlyphCount() const { return totalGlyphCount_; }
-
     /** 総文字数（ユニーク charIndex 数） */
     size_t getTotalCharCount() const { return totalCharCount_; }
 
@@ -147,7 +144,6 @@ private:
     float maxWidth_ = 0;
     float maxHeight_ = 0;
 
-    size_t totalGlyphCount_ = 0;
     size_t totalCharCount_ = 0;
     bool valid_ = false;
 };

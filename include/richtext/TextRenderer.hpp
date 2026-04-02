@@ -138,7 +138,7 @@ public:
     RectF drawLayout(const TextLayout& layout,
                      float x, float y,
                      const Appearance& appearance,
-                     int maxGlyphs = -1);
+                     int maxChars = -1);
     
     /**
      * パラグラフレイアウト済みの描画（単一スタイル）
@@ -148,7 +148,7 @@ public:
      * @param vAlign 垂直アライン
      * @param style テキストスタイル
      * @param appearance 描画外観
-     * @param maxGlyphs 描画するグリフ数上限（-1 = 全て）
+     * @param maxChars 描画する文字数上限（-1 = 全て）
      * @return 実際に描画した領域
      */
     RectF drawParagraphLayout(const ParagraphLayout& para,
@@ -157,7 +157,7 @@ public:
                                ParagraphLayout::VAlign vAlign,
                                const TextStyle& style,
                                const Appearance& appearance,
-                               int maxGlyphs = -1);
+                               int maxChars = -1);
 
     /**
      * パラグラフの描画（単一スタイル）
@@ -217,12 +217,12 @@ public:
      * @param layout レイアウト済み StyledLayout
      * @param x 描画開始X座標
      * @param y 描画開始Y座標
-     * @param maxGlyphs 描画するグリフ数上限（-1 = 全て）
+     * @param maxChars 描画する文字数上限（-1 = 全て）
      * @return 実際に描画した領域
      */
     RectF drawStyledLayout(const StyledLayout& layout,
                            float x, float y,
-                           int maxGlyphs = -1);
+                           int maxChars = -1);
     
     /**
      * 矩形描画

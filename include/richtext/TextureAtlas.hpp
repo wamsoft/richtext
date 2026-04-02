@@ -55,6 +55,8 @@ struct CopyRect {
     float dstX, dstY;
     // 表示順序インデックス（逐次表示用）
     int displayIndex;
+    // 元テキストでの文字位置
+    int charIndex = -1;
     // 表示タイミング（ms、-1 = 未設定）
     float delay = -1.0f;
     // リンク番号（-1 = なし）
@@ -123,13 +125,13 @@ public:
      * @param x 描画開始X
      * @param y 描画開始Y（ベースライン）
      * @param appearance 描画外観（キャッシュキーに使用）
-     * @param maxGlyphs 最大グリフ数（-1 = 全て）
+     * @param maxChars 最大文字数（-1 = 全て）
      * @return コピー矩形配列（表示順）
      */
     std::vector<CopyRect> getCopyRects(const TextLayout& layout,
                                        float x, float y,
                                        const Appearance& appearance,
-                                       int maxGlyphs = -1) const;
+                                       int maxChars = -1) const;
 
     /**
      * 表示用コピー矩形配列を生成（パラグラフ）
@@ -139,7 +141,7 @@ public:
      * @param vAlign 垂直アライン
      * @param style テキストスタイル
      * @param appearance 描画外観（キャッシュキーに使用）
-     * @param maxGlyphs 最大グリフ数（-1 = 全て）
+     * @param maxChars 最大文字数（-1 = 全て）
      * @return コピー矩形配列（表示順）
      */
     std::vector<CopyRect> getCopyRects(const ParagraphLayout& para,
@@ -148,20 +150,20 @@ public:
                                        ParagraphLayout::VAlign vAlign,
                                        const TextStyle& style,
                                        const Appearance& appearance,
-                                       int maxGlyphs = -1) const;
+                                       int maxChars = -1) const;
 
     /**
      * 表示用コピー矩形配列を生成（StyledLayout）
      * @param layout StyledLayout
      * @param x 描画開始X
      * @param y 描画開始Y
-     * @param maxGlyphs 最大グリフ数（-1 = 全て）
+     * @param maxChars 最大文字数（-1 = 全て）
      * @param resolvedTimings 解決済みタイミング配列（nullptr 可、指定時は delay を設定）
      * @return コピー矩形配列（表示順）
      */
     std::vector<CopyRect> getCopyRects(const StyledLayout& layout,
                                        float x, float y,
-                                       int maxGlyphs = -1,
+                                       int maxChars = -1,
                                        const std::vector<ResolvedTiming>* resolvedTimings = nullptr) const;
 
 private:

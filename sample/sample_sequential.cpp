@@ -1,7 +1,7 @@
 /**
  * sample_sequential.cpp
  *
- * 逐次表示（maxGlyphs）のサンプル
+ * 逐次表示（maxChars）のサンプル
  * 多言語・絵文字混在テキストを段階的に表示する
  */
 
@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
-    printf("=== Sequential Display (maxGlyphs) Sample ===\n\n");
+    printf("=== Sequential Display (maxChars) Sample ===\n\n");
 
     // サンプルテキスト定義
     struct Sample {
@@ -149,7 +149,7 @@ int main(int argc, char* argv[]) {
         float maxWidth;
         float fontSize;
         minikin::Bidi bidi;
-        // maxGlyphs の段階（-1 = 全表示）
+        // maxChars の段階（-1 = 全表示）
         std::vector<int> stages;
     };
 
@@ -338,18 +338,18 @@ int main(int argc, char* argv[]) {
         richtext::ParagraphLayout para;
         para.layout(utf8ToUtf16(sample.text), sample.maxWidth, style);
 
-        size_t totalGlyphs = para.getTotalGlyphCount();
-        printf("  totalGlyphs = %zu, lines = %zu\n",
-               totalGlyphs, para.getLineCount());
+        size_t totalChars = para.getTotalCharCount();
+        printf("  totalChars = %zu, lines = %zu\n",
+               totalChars, para.getLineCount());
 
         // 各段階を描画
-        for (int maxGlyphs : sample.stages) {
-            // ラベル（maxGlyphs 値を表示）
+        for (int maxChars : sample.stages) {
+            // ラベル（maxChars 値を表示）
             char buf[64];
-            if (maxGlyphs < 0) {
-                snprintf(buf, sizeof(buf), "maxGlyphs = -1 (all: %zu)", totalGlyphs);
+            if (maxChars < 0) {
+                snprintf(buf, sizeof(buf), "maxChars = -1 (all: %zu)", totalChars);
             } else {
-                snprintf(buf, sizeof(buf), "maxGlyphs = %d / %zu", maxGlyphs, totalGlyphs);
+                snprintf(buf, sizeof(buf), "maxChars = %d / %zu", maxChars, totalChars);
             }
             drawLabel(renderer, labelStyle, buf, LEFT, y);
 
@@ -361,9 +361,9 @@ int main(int argc, char* argv[]) {
                 richtext::ParagraphLayout::HAlign::Left,
                 richtext::ParagraphLayout::VAlign::Top,
                 style, appearance,
-                maxGlyphs);
+                maxChars);
 
-            printf("  stage: maxGlyphs=%d\n", maxGlyphs);
+            printf("  stage: maxChars=%d\n", maxChars);
             y += BOX_HEIGHT + STAGE_GAP;
         }
 
@@ -377,7 +377,7 @@ int main(int argc, char* argv[]) {
         printf("\n=== StyledLayout Sequential Display ===\n");
 
         // セクションタイトル
-        drawLabel(renderer, labelStyle, "StyledLayout: styled tags + maxGlyphs", LEFT, y);
+        drawLabel(renderer, labelStyle, "StyledLayout: styled tags + maxChars", LEFT, y);
         y += LABEL_HEIGHT + 4.0f;
 
         // スタイル定義
@@ -426,24 +426,23 @@ int main(int argc, char* argv[]) {
                             styles, appearances);
 
         size_t totalChars = styledLayout.getTotalCharCount();
-        size_t totalGlyphsSL = styledLayout.getTotalGlyphCount();
-        printf("  totalChars = %zu, totalGlyphs = %zu, lines = %zu\n",
-               totalChars, totalGlyphsSL, styledLayout.getLineCount());
+        printf("  totalChars = %zu, lines = %zu\n",
+               totalChars, styledLayout.getLineCount());
 
         // 段階的に描画
         std::vector<int> styledStages = {5, 10, 15, 20, -1};
-        for (int maxGlyphs : styledStages) {
+        for (int maxChars : styledStages) {
             char buf[64];
-            if (maxGlyphs < 0) {
-                snprintf(buf, sizeof(buf), "maxGlyphs = -1 (all: %zu chars)", totalChars);
+            if (maxChars < 0) {
+                snprintf(buf, sizeof(buf), "maxChars = -1 (all: %zu chars)", totalChars);
             } else {
-                snprintf(buf, sizeof(buf), "maxGlyphs = %d / %zu chars", maxGlyphs, totalChars);
+                snprintf(buf, sizeof(buf), "maxChars = %d / %zu chars", maxChars, totalChars);
             }
             drawLabel(renderer, labelStyle, buf, LEFT, y);
 
-            renderer.drawStyledLayout(styledLayout, LEFT, y + 16.0f, maxGlyphs);
+            renderer.drawStyledLayout(styledLayout, LEFT, y + 16.0f, maxChars);
 
-            printf("  stage: maxGlyphs=%d\n", maxGlyphs);
+            printf("  stage: maxChars=%d\n", maxChars);
             y += BOX_HEIGHT + STAGE_GAP;
         }
 
