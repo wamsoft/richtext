@@ -1,6 +1,6 @@
 /**
  * TagParser.cpp
- * 
+ *
  * HTMLライクなタグ付きテキストの解析
  */
 
@@ -51,6 +51,18 @@ struct TagParser::ParseState {
     // デフォルトスタイル（スタックが空になった際の復元用）
     TextStyle defaultStyle;
     Appearance defaultAppearance;
+
+    // --- タイミング状態 ---
+    float currentDelayPercent = 100.0f;
+    float currentDelayMs = -1.0f;
+    std::vector<TimingEntry> timings;
+
+    // --- リンク状態 ---
+    int currentLinkIndex = -1;
+    std::vector<LinkInfo> links;
+
+    // --- グラフィック ---
+    std::vector<GraphInfo> graphics;
 };
 
 //------------------------------------------------------------------------------
@@ -137,6 +149,31 @@ void TagParser::setOptions(const ParseOptions& options) {
 }
 
 //------------------------------------------------------------------------------
+// プレーンテキスト文字追加ヘルパー
+//------------------------------------------------------------------------------
+
+void TagParser::addPlainChar(ParseState& state, char16_t ch) {
+    int charIndex = static_cast<int>(state.plainText.size());
+    state.plainText += ch;
+
+    // タイミングエントリ生成
+    if (!options_.ignoreDelay) {
+        TimingEntry entry;
+        entry.type = TimingEntry::Type::Char;
+        entry.charIndex = charIndex;
+        entry.delayPercent = state.currentDelayPercent;
+        entry.delayMs = state.currentDelayMs;
+        state.timings.push_back(entry);
+    }
+
+    // リンク endIndex 更新
+    if (state.currentLinkIndex >= 0 &&
+        state.currentLinkIndex < static_cast<int>(state.links.size())) {
+        state.links[state.currentLinkIndex].endIndex = state.plainText.size();
+    }
+}
+
+//------------------------------------------------------------------------------
 // メインパース関数
 //------------------------------------------------------------------------------
 
@@ -146,31 +183,26 @@ TagParser::ParseResult TagParser::parse(
     const Appearance& defaultAppearance,
     const std::map<std::string, TextStyle>& namedStyles,
     const std::map<std::string, Appearance>& namedAppearances) {
-    
+
     ParseState state;
     state.currentStyle = defaultStyle;
     state.currentAppearance = defaultAppearance;
     state.defaultStyle = defaultStyle;
     state.defaultAppearance = defaultAppearance;
-    
+
     size_t pos = 0;
-    size_t lastTextStart = 0;
-    
+
     while (pos < taggedText.size()) {
         // タグの開始を探す
         if (taggedText[pos] == u'<') {
-            // タグ前のテキストを処理
-            size_t textEnd = pos;
-            
             // 次の文字を確認
             if (pos + 1 < taggedText.size()) {
                 char16_t nextChar = taggedText[pos + 1];
-                
+
                 if (nextChar == u'/') {
                     // 閉じタグ
                     if (!parseCloseTag(taggedText, pos, state)) {
-                        // パース失敗、通常の文字として扱う
-                        state.plainText += taggedText[pos];
+                        addPlainChar(state, taggedText[pos]);
                         ++pos;
                     }
                 } else if ((nextChar >= u'a' && nextChar <= u'z') ||
@@ -178,18 +210,17 @@ TagParser::ParseResult TagParser::parse(
                     // 開きタグ
                     if (!parseTag(taggedText, pos, state, defaultStyle, defaultAppearance,
                                   namedStyles, namedAppearances)) {
-                        // パース失敗、通常の文字として扱う
-                        state.plainText += taggedText[pos];
+                        addPlainChar(state, taggedText[pos]);
                         ++pos;
                     }
                 } else {
                     // タグではない（例: < 5）
-                    state.plainText += taggedText[pos];
+                    addPlainChar(state, taggedText[pos]);
                     ++pos;
                 }
             } else {
                 // ファイル末尾の '<'
-                state.plainText += taggedText[pos];
+                addPlainChar(state, taggedText[pos]);
                 ++pos;
             }
         } else if (taggedText[pos] == u'&') {
@@ -202,22 +233,22 @@ TagParser::ParseResult TagParser::parse(
                 entityName += static_cast<char>(taggedText[pos]);
                 ++pos;
             }
-            
+
             if (pos < taggedText.size() && taggedText[pos] == u';') {
                 ++pos;
                 // エンティティを展開
                 if (entityName == "lt") {
-                    state.plainText += u'<';
+                    addPlainChar(state, u'<');
                 } else if (entityName == "gt") {
-                    state.plainText += u'>';
+                    addPlainChar(state, u'>');
                 } else if (entityName == "amp") {
-                    state.plainText += u'&';
+                    addPlainChar(state, u'&');
                 } else if (entityName == "quot") {
-                    state.plainText += u'"';
+                    addPlainChar(state, u'"');
                 } else if (entityName == "apos") {
-                    state.plainText += u'\'';
+                    addPlainChar(state, u'\'');
                 } else if (entityName == "nbsp") {
-                    state.plainText += u'\u00A0';  // ノーブレークスペース
+                    addPlainChar(state, u'\u00A0');
                 } else if (entityName.size() > 1 && entityName[0] == '#') {
                     // 数値参照
                     int codePoint = 0;
@@ -227,31 +258,32 @@ TagParser::ParseResult TagParser::parse(
                         codePoint = std::stoi(entityName.substr(1));
                     }
                     if (codePoint > 0 && codePoint <= 0xFFFF) {
-                        state.plainText += static_cast<char16_t>(codePoint);
+                        addPlainChar(state, static_cast<char16_t>(codePoint));
                     }
                 } else {
                     // 未知のエンティティ
-                    state.plainText += u'&';
-                    state.plainText += utf8ToUtf16(entityName);
-                    state.plainText += u';';
+                    addPlainChar(state, u'&');
+                    std::u16string entityU16 = utf8ToUtf16(entityName);
+                    for (char16_t c : entityU16) addPlainChar(state, c);
+                    addPlainChar(state, u';');
                 }
             } else {
                 // 不完全なエンティティ
                 for (size_t i = start; i < pos; ++i) {
-                    state.plainText += taggedText[i];
+                    addPlainChar(state, taggedText[i]);
                 }
             }
         } else {
             // 通常の文字
-            state.plainText += taggedText[pos];
+            addPlainChar(state, taggedText[pos]);
             ++pos;
         }
     }
-    
+
     // 未閉じタグの処理
     while (!state.styleStack.empty()) {
         auto& ctx = state.styleStack.top();
-        
+
         // スパンを追加
         TextSpan span;
         span.start = ctx.startPos;
@@ -265,31 +297,29 @@ TagParser::ParseResult TagParser::parse(
         span.isSuperscript = ctx.isSuperscript;
         span.isSubscript = ctx.isSubscript;
         span.yOffset = ctx.yOffset;
-        
+
         if (span.end > span.start) {
             state.spans.push_back(span);
         }
-        
+
         if (options_.strictMode) {
             state.errors.push_back("Unclosed tag: <" + ctx.tagName + ">");
         }
-        
+
+        // link の未閉じ処理
+        if (ctx.tagName == "link") {
+            state.currentLinkIndex = -1;
+        }
+
         state.styleStack.pop();
     }
-    
+
     // ギャップ補填：ネストされたタグによる重複スパンを解決し、
     // 各文字位置に最も内側（最も具体的な）スタイルを適用する。
-    //
-    // スパンは閉じタグ順（内側→外側）に格納されている。
-    // 逆順（外側→内側）に文字単位で塗り、内側が外側を上書きすることで
-    // ネストの優先順位を正しく反映する。
     if (!state.plainText.empty()) {
         size_t n = state.plainText.size();
-
-        // 各文字位置に適用するスパンインデックス（-1 = デフォルトスタイル）
         std::vector<int> charSpanIdx(n, -1);
 
-        // 逆順（外側から内側へ）に処理し、内側のスパンが外側を上書き
         for (int si = static_cast<int>(state.spans.size()) - 1; si >= 0; si--) {
             const auto& sp = state.spans[si];
             size_t end = std::min(sp.end, n);
@@ -298,14 +328,12 @@ TagParser::ParseResult TagParser::parse(
             }
         }
 
-        // 同一スパンインデックスの連続する文字列をマージして
-        // 重複のないスパンリストを構築
         std::vector<TextSpan> filled;
         size_t runStart = 0;
         int prevIdx = charSpanIdx[0];
 
         for (size_t i = 1; i <= n; i++) {
-            int curIdx = (i < n) ? charSpanIdx[i] : ~prevIdx; // 末尾で確実にフラッシュ
+            int curIdx = (i < n) ? charSpanIdx[i] : ~prevIdx;
             if (curIdx != prevIdx) {
                 TextSpan piece;
                 piece.start = runStart;
@@ -333,17 +361,22 @@ TagParser::ParseResult TagParser::parse(
 
         state.spans = std::move(filled);
     }
-    
+
     // 結果を構築
     ParseResult result;
     result.plainText = std::move(state.plainText);
     result.spans = std::move(state.spans);
     result.errors = std::move(state.errors);
     result.hasErrors = !result.errors.empty();
-    
+
+    // メタデータ
+    result.timings = std::move(state.timings);
+    result.links = std::move(state.links);
+    result.graphics = std::move(state.graphics);
+
     // StyleRun を構築
     result.styleRuns = buildStyleRuns(result);
-    
+
     return result;
 }
 
@@ -353,7 +386,7 @@ TagParser::ParseResult TagParser::parse(
     const Appearance& defaultAppearance,
     const std::map<std::string, TextStyle>& namedStyles,
     const std::map<std::string, Appearance>& namedAppearances) {
-    
+
     return parse(utf8ToUtf16(taggedTextUtf8), defaultStyle, defaultAppearance,
                  namedStyles, namedAppearances);
 }
@@ -368,23 +401,23 @@ bool TagParser::parseTag(
     const Appearance& defaultAppearance,
     const std::map<std::string, TextStyle>& namedStyles,
     const std::map<std::string, Appearance>& namedAppearances) {
-    
+
     size_t startPos = pos;
-    
+
     // '<' をスキップ
     ++pos;
-    
+
     // タグ名を取得
     std::string tagName = toLower(parseIdentifier(text, pos));
     if (tagName.empty()) {
         pos = startPos;
         return false;
     }
-    
+
     // 属性を解析
     skipWhitespace(text, pos);
     auto attrs = parseAttributes(text, pos);
-    
+
     // '>' または '/>' を探す
     skipWhitespace(text, pos);
     bool selfClosing = false;
@@ -392,13 +425,13 @@ bool TagParser::parseTag(
         selfClosing = true;
         ++pos;
     }
-    
+
     if (pos >= text.size() || text[pos] != u'>') {
         pos = startPos;
         return false;
     }
     ++pos;  // '>' をスキップ
-    
+
     // タグを処理
     TextStyle newStyle = state.currentStyle;
     Appearance newAppearance = state.currentAppearance;
@@ -411,12 +444,14 @@ bool TagParser::parseTag(
     bool isSubscript = false;
     float yOffset = 0.0f;
     bool isVoidTag = false;  // 閉じタグ不要のタグ
-    
+
     if (tagName == "font") {
         newStyle = applyFontTag(state.currentStyle, attrs);
     } else if (tagName == "b" || tagName == "strong") {
+        if (options_.ignoreType) return true;
         newStyle = applyBoldTag(state.currentStyle);
     } else if (tagName == "i" || tagName == "em") {
+        if (options_.ignoreType) return true;
         newStyle = applyItalicTag(state.currentStyle);
     } else if (tagName == "u") {
         hasUnderline = true;
@@ -425,19 +460,22 @@ bool TagParser::parseTag(
     } else if (tagName == "sup") {
         newStyle = applySupTag(state.currentStyle);
         isSuperscript = true;
-        // Y オフセットは現在のフォントサイズ基準（em単位 → ピクセル変換）
         yOffset = options_.supOffset * state.currentStyle.fontSize;
     } else if (tagName == "sub") {
         newStyle = applySubTag(state.currentStyle);
         isSubscript = true;
         yOffset = options_.subOffset * state.currentStyle.fontSize;
     } else if (tagName == "color") {
+        if (options_.ignoreColor) return true;
         newAppearance = applyColorTag(state.currentAppearance, attrs);
     } else if (tagName == "outline") {
+        if (options_.ignoreType) return true;
         newAppearance = applyOutlineTag(state.currentAppearance, attrs);
     } else if (tagName == "shadow") {
+        if (options_.ignoreType) return true;
         newAppearance = applyShadowTag(state.currentAppearance, attrs);
     } else if (tagName == "ruby") {
+        if (options_.ignoreRuby) return true;
         hasRuby = true;
         auto it = attrs.find("text");
         if (it != attrs.end()) {
@@ -458,7 +496,7 @@ bool TagParser::parseTag(
         }
     } else if (tagName == "br") {
         // 改行
-        state.plainText += u'\n';
+        addPlainChar(state, u'\n');
         isVoidTag = true;
     } else if (tagName == "sp") {
         // スペース
@@ -469,9 +507,130 @@ bool TagParser::parseTag(
             if (width < 1) width = 1;
         }
         for (int i = 0; i < width; ++i) {
-            state.plainText += u' ';
+            addPlainChar(state, u' ');
         }
         isVoidTag = true;
+    // ------------------------------------------------------------------
+    // 新規タグ: タイミング・リンク・グラフィック・アライン・ピッチ
+    // ------------------------------------------------------------------
+    } else if (tagName == "delay") {
+        isVoidTag = true;
+        if (!options_.ignoreDelay) {
+            auto it = attrs.find("value");
+            if (it != attrs.end()) {
+                const auto& v = it->second;
+                if (!v.empty() && v.back() == '%') {
+                    // 末尾に % → パーセント指定
+                    state.currentDelayPercent = parseFloat(v.substr(0, v.size() - 1));
+                    state.currentDelayMs = -1.0f;
+                } else {
+                    // 数値のみ → ms 指定
+                    state.currentDelayMs = parseFloat(v);
+                }
+            }
+        }
+    } else if (tagName == "wait") {
+        isVoidTag = true;
+        if (!options_.ignoreDelay) {
+            TimingEntry entry;
+            entry.type = TimingEntry::Type::Wait;
+            entry.charIndex = static_cast<int>(state.plainText.size());
+            auto it = attrs.find("value");
+            if (it != attrs.end()) {
+                const auto& v = it->second;
+                if (!v.empty() && v.back() == '%') {
+                    entry.waitPercent = parseFloat(v.substr(0, v.size() - 1));
+                } else {
+                    entry.waitMs = parseFloat(v);
+                }
+            }
+            state.timings.push_back(entry);
+        }
+    } else if (tagName == "sync") {
+        isVoidTag = true;
+        if (!options_.ignoreDelay) {
+            TimingEntry entry;
+            entry.type = TimingEntry::Type::Sync;
+            entry.charIndex = static_cast<int>(state.plainText.size());
+            auto it = attrs.find("value");
+            if (it != attrs.end()) {
+                const auto& v = it->second;
+                // 全部数値なら ms、そうでなければラベル
+                bool allDigits = !v.empty();
+                for (char c : v) {
+                    if (!std::isdigit(static_cast<unsigned char>(c)) && c != '.' && c != '-') {
+                        allDigits = false;
+                        break;
+                    }
+                }
+                if (allDigits) {
+                    entry.syncMs = parseFloat(v);
+                } else {
+                    entry.syncLabel = v;
+                }
+            }
+            state.timings.push_back(entry);
+        }
+    } else if (tagName == "keywait") {
+        isVoidTag = true;
+        if (!options_.ignoreDelay) {
+            TimingEntry entry;
+            entry.type = TimingEntry::Type::KeyWait;
+            entry.charIndex = static_cast<int>(state.plainText.size());
+            state.timings.push_back(entry);
+        }
+    } else if (tagName == "eval") {
+        isVoidTag = true;
+        auto nameIt = attrs.find("name");
+        if (nameIt != attrs.end()) {
+            std::u16string displayText;
+            std::u16string nameU16 = utf8ToUtf16(nameIt->second);
+            // コールバックで表示文字列を決定
+            if (evalCallback_) {
+                displayText = evalCallback_(nameU16);
+            }
+            // 空文字または未登録の場合は alt を使用
+            if (displayText.empty()) {
+                auto altIt = attrs.find("alt");
+                if (altIt != attrs.end()) {
+                    displayText = utf8ToUtf16(altIt->second);
+                }
+            }
+            // alt も未定義なら name をそのまま表示
+            if (displayText.empty()) {
+                displayText = nameU16;
+            }
+            // 表示文字列をプレーンテキストに追加
+            for (char16_t ch : displayText) {
+                addPlainChar(state, ch);
+            }
+        }
+    } else if (tagName == "link") {
+        if (!options_.ignoreLink) {
+            LinkInfo li;
+            auto it = attrs.find("name");
+            if (it != attrs.end()) li.name = it->second;
+            li.startIndex = state.plainText.size();
+            li.endIndex = state.plainText.size();
+            state.links.push_back(li);
+            state.currentLinkIndex = static_cast<int>(state.links.size()) - 1;
+        }
+        // container タグ: ignoreLink でもスタックに積んで閉じタグを正しく処理
+    } else if (tagName == "graph") {
+        isVoidTag = true;
+        if (!options_.ignoreGraph) {
+            GraphInfo gi;
+            auto it = attrs.find("name");
+            if (it != attrs.end()) gi.name = utf8ToUtf16(it->second);
+            it = attrs.find("width");
+            if (it != attrs.end()) gi.width = parseFloat(it->second);
+            it = attrs.find("height");
+            if (it != attrs.end()) gi.height = parseFloat(it->second);
+            gi.charIndex = static_cast<int>(state.plainText.size());
+            state.graphics.push_back(gi);
+            // U+FFFC プレースホルダを挿入
+            addPlainChar(state, u'\uFFFC');
+        }
     } else {
         // 未知のタグ
         if (!options_.ignoreUnknownTags) {
@@ -480,12 +639,12 @@ bool TagParser::parseTag(
         // 無視して処理を続行
         return true;
     }
-    
+
     // 自己閉じタグまたはvoidタグの場合はスタックに積まない
     if (selfClosing || isVoidTag) {
         return true;
     }
-    
+
     // 現在のスタイルをスタックに積む
     ParseState::StyleContext ctx;
     ctx.tagName = tagName;
@@ -503,23 +662,23 @@ bool TagParser::parseTag(
     state.styleStack.push(ctx);
     state.currentStyle = newStyle;
     state.currentAppearance = newAppearance;
-    
+
     return true;
 }
 
 bool TagParser::parseCloseTag(const std::u16string& text, size_t& pos, ParseState& state) {
     size_t startPos = pos;
-    
+
     // '</' をスキップ
     pos += 2;
-    
+
     // タグ名を取得
     std::string tagName = toLower(parseIdentifier(text, pos));
     if (tagName.empty()) {
         pos = startPos;
         return false;
     }
-    
+
     // '>' を探す
     skipWhitespace(text, pos);
     if (pos >= text.size() || text[pos] != u'>') {
@@ -527,40 +686,46 @@ bool TagParser::parseCloseTag(const std::u16string& text, size_t& pos, ParseStat
         return false;
     }
     ++pos;  // '>' をスキップ
-    
+
     // スタックから対応する開きタグを探す
     if (state.styleStack.empty()) {
         state.errors.push_back("Unexpected closing tag: </" + tagName + ">");
         return true;  // エラーだがパースは成功
     }
-    
+
     auto& top = state.styleStack.top();
-    
+
     if (top.tagName != tagName) {
         // タグの不一致
         if (options_.strictMode) {
-            state.errors.push_back("Mismatched closing tag: expected </" + 
+            state.errors.push_back("Mismatched closing tag: expected </" +
                                   top.tagName + ">, got </" + tagName + ">");
         }
-        // それでも閉じる（寛容モード）
     }
-    
-    // スパンを追加
-    TextSpan span;
-    span.start = top.startPos;
-    span.end = state.plainText.size();
-    span.style = top.style;
-    span.appearance = top.appearance;
-    span.hasRuby = top.hasRuby;
-    span.rubyText = top.rubyText;
-    span.hasUnderline = top.hasUnderline;
-    span.hasStrikethrough = top.hasStrikethrough;
-    span.isSuperscript = top.isSuperscript;
-    span.isSubscript = top.isSubscript;
-    span.yOffset = top.yOffset;
 
-    if (span.end > span.start) {
-        state.spans.push_back(span);
+    // link タグの閉じ処理
+    if (top.tagName == "link") {
+        state.currentLinkIndex = -1;
+    }
+
+    // スパンを追加（link タグはスタイル変更しないのでスパン不要）
+    if (top.tagName != "link") {
+        TextSpan span;
+        span.start = top.startPos;
+        span.end = state.plainText.size();
+        span.style = top.style;
+        span.appearance = top.appearance;
+        span.hasRuby = top.hasRuby;
+        span.rubyText = top.rubyText;
+        span.hasUnderline = top.hasUnderline;
+        span.hasStrikethrough = top.hasStrikethrough;
+        span.isSuperscript = top.isSuperscript;
+        span.isSubscript = top.isSubscript;
+        span.yOffset = top.yOffset;
+
+        if (span.end > span.start) {
+            state.spans.push_back(span);
+        }
     }
 
     state.styleStack.pop();
@@ -574,7 +739,7 @@ bool TagParser::parseCloseTag(const std::u16string& text, size_t& pos, ParseStat
         state.currentStyle = state.defaultStyle;
         state.currentAppearance = state.defaultAppearance;
     }
-    
+
     return true;
 }
 
@@ -584,25 +749,25 @@ bool TagParser::parseCloseTag(const std::u16string& text, size_t& pos, ParseStat
 
 std::map<std::string, std::string> TagParser::parseAttributes(
     const std::u16string& text, size_t& pos) {
-    
+
     std::map<std::string, std::string> attrs;
-    
+
     while (pos < text.size()) {
         skipWhitespace(text, pos);
-        
+
         // '>' または '/' で終了
         if (pos >= text.size() || text[pos] == u'>' || text[pos] == u'/') {
             break;
         }
-        
+
         // 属性名を取得
         std::string attrName = toLower(parseIdentifier(text, pos));
         if (attrName.empty()) {
             break;
         }
-        
+
         skipWhitespace(text, pos);
-        
+
         // '=' があれば値を取得
         std::string attrValue;
         if (pos < text.size() && text[pos] == u'=') {
@@ -610,10 +775,10 @@ std::map<std::string, std::string> TagParser::parseAttributes(
             skipWhitespace(text, pos);
             attrValue = parseAttributeValue(text, pos);
         }
-        
+
         attrs[attrName] = attrValue;
     }
-    
+
     return attrs;
 }
 
@@ -658,17 +823,17 @@ std::string TagParser::parseAttributeValue(const std::u16string& text, size_t& p
 
 uint32_t TagParser::parseColorValue(const std::string& value) {
     std::string v = value;
-    
+
     // 先頭の # を除去
     if (!v.empty() && v[0] == '#') {
         v = v.substr(1);
     }
-    
+
     // 0x プレフィックスを除去
     if (v.size() >= 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) {
         v = v.substr(2);
     }
-    
+
     try {
         if (v.size() == 6) {
             // RRGGBB → 0xFFRRGGBB
@@ -679,7 +844,7 @@ uint32_t TagParser::parseColorValue(const std::string& value) {
         }
     } catch (...) {
     }
-    
+
     return 0xFFFFFFFF;  // デフォルト: 白
 }
 
@@ -690,29 +855,29 @@ uint32_t TagParser::parseColorValue(const std::string& value) {
 TextStyle TagParser::applyFontTag(const TextStyle& current,
                                   const std::map<std::string, std::string>& attrs) {
     TextStyle style = current;
-    
+
     auto it = attrs.find("size");
-    if (it != attrs.end()) {
+    if (it != attrs.end() && !options_.ignoreSize) {
         style.fontSize = parseFloat(it->second);
     }
-    
+
     it = attrs.find("weight");
-    if (it != attrs.end()) {
+    if (it != attrs.end() && !options_.ignoreType) {
         style.fontWeight = static_cast<uint16_t>(parseInt(it->second));
     }
-    
+
     it = attrs.find("spacing");
-    if (it != attrs.end()) {
+    if (it != attrs.end() && !options_.ignoreSpacing) {
         style.letterSpacing = parseFloat(it->second);
     }
 
     it = attrs.find("width");
-    if (it != attrs.end()) {
+    if (it != attrs.end() && !options_.ignoreType) {
         style.fontWidth = parseFloat(it->second);
     }
 
     it = attrs.find("face");
-    if (it != attrs.end() && !it->second.empty()) {
+    if (it != attrs.end() && !it->second.empty() && !options_.ignoreFace) {
         auto& fm = FontManager::instance();
         // 名前付きコレクションを優先参照（フォールバックチェーン付き）
         auto collection = fm.getCollection(it->second);
@@ -780,7 +945,7 @@ Appearance TagParser::applyColorTag(const Appearance& current,
 
     it = attrs.find("x");
     if (it != attrs.end()) ox = parseFloat(it->second);
-    
+
     it = attrs.find("y");
     if (it != attrs.end()) oy = parseFloat(it->second);
 
@@ -799,23 +964,23 @@ Appearance TagParser::applyOutlineTag(const Appearance& current,
     uint32_t color = 0xFF000000;  // デフォルト: 黒
     float width = 2.0f;
     float ox = 0, oy = 0;
-    
+
     auto it = attrs.find("color");
     if (it != attrs.end()) {
         color = parseColorValue(it->second);
     }
-    
+
     it = attrs.find("width");
     if (it != attrs.end()) {
         width = parseFloat(it->second);
     }
-    
+
     it = attrs.find("x");
     if (it != attrs.end()) ox = parseFloat(it->second);
-    
+
     it = attrs.find("y");
     if (it != attrs.end()) oy = parseFloat(it->second);
-    
+
     Appearance app = current;
     bool addMode = (attrs.find("add") != attrs.end());
     if (addMode) {
@@ -830,18 +995,18 @@ Appearance TagParser::applyShadowTag(const Appearance& current,
                                      const std::map<std::string, std::string>& attrs) {
     uint32_t color = 0x80000000;  // デフォルト: 半透明黒
     float ox = 2.0f, oy = 2.0f;
-    
+
     auto it = attrs.find("color");
     if (it != attrs.end()) {
         color = parseColorValue(it->second);
     }
-    
+
     it = attrs.find("x");
     if (it != attrs.end()) ox = parseFloat(it->second);
-    
+
     it = attrs.find("y");
     if (it != attrs.end()) oy = parseFloat(it->second);
-    
+
     Appearance app = current;
     bool addMode = (attrs.find("add") != attrs.end());
     if (addMode) {
@@ -858,20 +1023,20 @@ Appearance TagParser::applyShadowTag(const Appearance& current,
 
 std::vector<ParagraphLayout::StyleRun> TagParser::buildStyleRuns(
     const ParseResult& result) {
-    
+
     std::vector<ParagraphLayout::StyleRun> runs;
-    
+
     if (result.spans.empty()) {
         return runs;
     }
-    
+
     // スパンを開始位置でソート
     auto sortedSpans = result.spans;
     std::sort(sortedSpans.begin(), sortedSpans.end(),
               [](const TextSpan& a, const TextSpan& b) {
                   return a.start < b.start;
               });
-    
+
     // 重複するスパンをマージ/分割してStyleRunに変換
     for (const auto& span : sortedSpans) {
         ParagraphLayout::StyleRun run;
@@ -880,7 +1045,7 @@ std::vector<ParagraphLayout::StyleRun> TagParser::buildStyleRuns(
         run.style = span.style;
         runs.push_back(run);
     }
-    
+
     return runs;
 }
 
@@ -891,7 +1056,7 @@ std::vector<ParagraphLayout::StyleRun> TagParser::buildStyleRuns(
 std::u16string TagParser::stripTags(const std::u16string& taggedText) {
     std::u16string result;
     size_t pos = 0;
-    
+
     while (pos < taggedText.size()) {
         if (taggedText[pos] == u'<') {
             // タグをスキップ
@@ -906,14 +1071,14 @@ std::u16string TagParser::stripTags(const std::u16string& taggedText) {
             ++pos;
         }
     }
-    
+
     return result;
 }
 
 std::u16string TagParser::unescapeText(const std::u16string& text) {
     std::u16string result;
     size_t pos = 0;
-    
+
     while (pos < text.size()) {
         if (text[pos] == u'&') {
             size_t start = pos;
@@ -947,13 +1112,13 @@ std::u16string TagParser::unescapeText(const std::u16string& text) {
             ++pos;
         }
     }
-    
+
     return result;
 }
 
 std::u16string TagParser::escapeText(const std::u16string& text) {
     std::u16string result;
-    
+
     for (char16_t c : text) {
         switch (c) {
         case u'<': result += u"&lt;"; break;
@@ -964,7 +1129,7 @@ std::u16string TagParser::escapeText(const std::u16string& text) {
         default: result += c; break;
         }
     }
-    
+
     return result;
 }
 

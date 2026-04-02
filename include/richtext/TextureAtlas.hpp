@@ -55,6 +55,10 @@ struct CopyRect {
     float dstX, dstY;
     // 表示順序インデックス（逐次表示用）
     int displayIndex;
+    // 表示タイミング（ms、-1 = 未設定）
+    float delay = -1.0f;
+    // リンク番号（-1 = なし）
+    int linkIndex = -1;
 };
 
 /**

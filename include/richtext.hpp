@@ -27,5 +27,7 @@
 #include "richtext/TextRenderer.hpp"
 #include "richtext/TagParser.hpp"
 #include "richtext/TextureAtlas.hpp"
+#include "richtext/TimingInfo.hpp"
+#include "richtext/LinkRegion.hpp"
 
 #endif // RICHTEXT_HPP

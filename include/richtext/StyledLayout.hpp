@@ -10,6 +10,8 @@
 #include "richtext/TextLayout.hpp"
 #include "richtext/ParagraphLayout.hpp"
 #include "richtext/TagParser.hpp"
+#include "richtext/TimingInfo.hpp"
+#include "richtext/LinkRegion.hpp"
 
 namespace richtext {
 
@@ -44,6 +46,16 @@ public:
     };
 
     StyledLayout() = default;
+
+    /**
+     * TagParser オプションの設定（layout() 前に呼ぶ）
+     */
+    void setParserOptions(const TagParser::ParseOptions& opts) { parserOptions_ = opts; }
+
+    /**
+     * eval タグ用コールバックの設定（layout() 前に呼ぶ）
+     */
+    void setEvalCallback(EvalCallback cb) { evalCallback_ = std::move(cb); }
 
     /**
      * レイアウト実行
@@ -104,11 +116,31 @@ public:
     /** レイアウト済みかどうか */
     bool isValid() const { return valid_; }
 
+    // ------------------------------------------------------------------
+    // メタデータアクセサ（TagParser が生成した情報）
+    // ------------------------------------------------------------------
+
+    /** タイミング情報 */
+    const std::vector<TimingEntry>& getTimings() const { return parsed_.timings; }
+
+    /** リンク情報 */
+    const std::vector<LinkInfo>& getLinks() const { return parsed_.links; }
+
+    /** グラフィック情報 */
+    const std::vector<GraphInfo>& getGraphics() const { return parsed_.graphics; }
+
+    /**
+     * リンク矩形領域を構築
+     * レイアウト完了後に呼び出し、文字位置情報から LinkRegion を生成する。
+     */
+    std::vector<LinkRegion> buildLinkRegions() const;
+
 private:
     TagParser::ParseResult parsed_;
     ParagraphLayout para_;
     std::vector<LineLayout> lineLayouts_;
     TagParser::ParseOptions parserOptions_;
+    EvalCallback evalCallback_;
 
     ParagraphLayout::HAlign hAlign_ = ParagraphLayout::HAlign::Left;
     ParagraphLayout::VAlign vAlign_ = ParagraphLayout::VAlign::Top;

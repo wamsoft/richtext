@@ -44,8 +44,9 @@ void StyledLayout::layout(const std::u16string& text,
 
     // タグ付きテキストを解析
     TagParser parser;
+    parser.setOptions(parserOptions_);
+    if (evalCallback_) parser.setEvalCallback(evalCallback_);
     parsed_ = parser.parse(text, defaultStyle, defaultAppearance, styles, appearances);
-    parserOptions_ = parser.getOptions();
 
     if (parsed_.plainText.empty()) {
         return;
@@ -116,6 +117,82 @@ void StyledLayout::layout(const std::u16string& text,
 
     totalCharCount_ = allCharIndices.size();
     valid_ = true;
+}
+
+//------------------------------------------------------------------------------
+// リンク矩形領域の構築
+//------------------------------------------------------------------------------
+
+std::vector<LinkRegion> StyledLayout::buildLinkRegions() const {
+    std::vector<LinkRegion> regions;
+    if (!valid_ || parsed_.links.empty()) return regions;
+
+    // charIndex → (x, y, width, height) のルックアップテーブルを構築
+    struct CharPos {
+        float x, y, w, h;
+        size_t lineIdx;
+    };
+    std::map<size_t, CharPos> charPosMap;
+
+    for (size_t li = 0; li < lineLayouts_.size(); li++) {
+        const auto& line = lineLayouts_[li];
+        // 行のベースライン Y を取得
+        float lineY = 0;
+        float lineH = 0;
+        if (li < para_.getLineCount()) {
+            const auto& lineInfo = para_.getLine(li);
+            lineH = lineInfo.height();
+        }
+
+        for (const auto& seg : line.segments) {
+            const auto& glyphs = seg.layout.getGlyphs();
+            for (const auto& g : glyphs) {
+                size_t charIdx = seg.segStart + g.charIndex;
+                CharPos cp;
+                cp.x = g.x;
+                cp.y = g.y + seg.yOffset;
+                cp.w = g.advance;
+                cp.h = lineH > 0 ? lineH : parsed_.spans.empty() ? 16.0f : parsed_.spans[0].style.fontSize;
+                cp.lineIdx = li;
+                charPosMap[charIdx] = cp;
+            }
+        }
+    }
+
+    // 各リンクについて矩形を構築
+    for (const auto& link : parsed_.links) {
+        LinkRegion region;
+        region.name = link.name;
+
+        size_t lastLine = static_cast<size_t>(-1);
+        for (size_t ci = link.startIndex; ci < link.endIndex; ci++) {
+            auto it = charPosMap.find(ci);
+            if (it == charPosMap.end()) continue;
+
+            const auto& cp = it->second;
+            region.charIndices.push_back(static_cast<int>(ci));
+
+            float l = cp.x;
+            float t = cp.y;
+            float r = l + cp.w;
+            float b = t + cp.h;
+
+            if (region.rects.empty() || cp.lineIdx != lastLine) {
+                region.rects.push_back({l, t, r, b});
+                lastLine = cp.lineIdx;
+            } else {
+                auto& rect = region.rects.back();
+                if (l < rect.left) rect.left = l;
+                if (t < rect.top) rect.top = t;
+                if (r > rect.right) rect.right = r;
+                if (b > rect.bottom) rect.bottom = b;
+            }
+        }
+
+        regions.push_back(std::move(region));
+    }
+
+    return regions;
 }
 
 } // namespace richtext
