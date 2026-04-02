@@ -7,7 +7,8 @@
             "generator": "Ninja Multi-Config",
             "binaryDir": "$env{BUILD_DIR}",
             "environment": {
-                "BUILD_DIR": "build/${presetName}"
+                "BUILD_DIR": "build/${presetName}",
+                "VSLANG":"1033"
             },
             "cacheVariables": {
                 "CMAKE_CXX_STANDARD":"17",

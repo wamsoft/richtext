@@ -321,7 +321,8 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const ParagraphLayout& para,
 
 std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayout,
                                                   float x, float y,
-                                                  int maxGlyphs) const {
+                                                  int maxGlyphs,
+                                                  const std::vector<ResolvedTiming>* resolvedTimings) const {
     std::vector<CopyRect> rects;
     if (!styledLayout.isValid()) return rects;
 
@@ -332,6 +333,17 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
     ParagraphLayout::VAlign vAlign = styledLayout.getVAlign();
     float maxWidth = styledLayout.getMaxWidth();
     float maxHeight = styledLayout.getMaxHeight();
+
+    // charIndex → delay のルックアップテーブルを構築
+    std::unordered_map<int, float> delayMap;
+    if (resolvedTimings) {
+        for (const auto& rt : *resolvedTimings) {
+            delayMap[rt.charIndex] = rt.delay;
+        }
+    }
+
+    // リンク情報の参照
+    const auto& links = parsed.links;
 
     int remaining = maxGlyphs;
     int globalIndex = 0;
@@ -404,6 +416,26 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
                 cr.dstX = curX + glyphs[i].x + entry.offsetX;
                 cr.dstY = drawY + glyphs[i].y + entry.offsetY;
                 cr.displayIndex = globalIndex++;
+
+                // plainText 上の charIndex を計算
+                size_t plainCharIdx = sl.segStart + glyphs[i].charIndex;
+
+                // delay を設定
+                if (!delayMap.empty()) {
+                    auto dit = delayMap.find(static_cast<int>(plainCharIdx));
+                    if (dit != delayMap.end()) {
+                        cr.delay = dit->second;
+                    }
+                }
+
+                // linkIndex を設定
+                for (int lk = 0; lk < static_cast<int>(links.size()); ++lk) {
+                    if (plainCharIdx >= links[lk].startIndex && plainCharIdx < links[lk].endIndex) {
+                        cr.linkIndex = lk;
+                        break;
+                    }
+                }
+
                 rects.push_back(cr);
             }
 

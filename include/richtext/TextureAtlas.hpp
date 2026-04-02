@@ -156,11 +156,13 @@ public:
      * @param x 描画開始X
      * @param y 描画開始Y
      * @param maxGlyphs 最大グリフ数（-1 = 全て）
+     * @param resolvedTimings 解決済みタイミング配列（nullptr 可、指定時は delay を設定）
      * @return コピー矩形配列（表示順）
      */
     std::vector<CopyRect> getCopyRects(const StyledLayout& layout,
                                        float x, float y,
-                                       int maxGlyphs = -1) const;
+                                       int maxGlyphs = -1,
+                                       const std::vector<ResolvedTiming>* resolvedTimings = nullptr) const;
 
 private:
     ITexture* texture_;
