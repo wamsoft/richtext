@@ -42,6 +42,9 @@ struct GraphInfo {
 /// eval タグ用コールバック（name → 表示文字列）
 using EvalCallback = std::function<std::u16string(const std::u16string& name)>;
 
+/// ラベル名から時間（ms）を解決するコールバック
+using LabelResolver = std::function<float(const std::string& label)>;
+
 class TagParser {
 public:
     /**
@@ -137,6 +140,12 @@ public:
      * eval タグ用コールバックの設定
      */
     void setEvalCallback(EvalCallback cb) { evalCallback_ = std::move(cb); }
+
+    /**
+     * ラベル解決コールバックの設定
+     * sync タグのラベル参照をパース時に解決する。
+     */
+    void setLabelResolver(LabelResolver cb) { labelResolver_ = std::move(cb); }
     
     /**
      * タグ付きテキストの解析
@@ -204,6 +213,7 @@ public:
 private:
     ParseOptions options_;
     EvalCallback evalCallback_;
+    LabelResolver labelResolver_;
 
     // 内部パース状態
     struct ParseState;

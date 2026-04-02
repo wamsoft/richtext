@@ -1,8 +1,6 @@
 #include "richtext/TimingInfo.hpp"
 
 #include <algorithm>
-#include <numeric>
-#include <cmath>
 
 namespace richtext {
 
@@ -17,9 +15,7 @@ static void resolveSection(
     const std::vector<TimingEntry>& entries,
     size_t rangeStart, size_t rangeEnd,
     float diff, float all,
-    bool widthTimeScale,
-    const std::vector<float>& charWidths,
-    const LabelResolver& labelResolver,
+    const std::vector<float>* charWidths,
     float& currentTime,
     std::vector<ResolvedTiming>& result,
     std::vector<KeyWaitInfo>* outKeyWaits)
@@ -27,12 +23,12 @@ static void resolveSection(
     // diff == 0 の場合、delay/wait/sync を無視（瞬間表示）
     bool instantMode = (diff == 0.0f);
 
-    // 文字幅の平均値（widthTimeScale 用の基準）
+    // 文字幅の平均値（charWidths 用の基準）
     float avgWidth = 0.0f;
-    if (widthTimeScale && !charWidths.empty()) {
+    if (charWidths && !charWidths->empty()) {
         float sum = 0.0f;
         int count = 0;
-        for (float w : charWidths) {
+        for (float w : *charWidths) {
             if (w > 0.0f) {
                 sum += w;
                 ++count;
@@ -56,9 +52,7 @@ static void resolveSection(
 
         case TimingEntry::Type::Sync: {
             if (instantMode) break;
-            if (!entry.syncLabel.empty() && labelResolver) {
-                currentTime = labelResolver(entry.syncLabel);
-            } else if (entry.syncMs >= 0.0f) {
+            if (entry.syncMs >= 0.0f) {
                 currentTime = entry.syncMs;
             }
             break;
@@ -96,9 +90,9 @@ static void resolveSection(
                     charDelay = diff * (entry.delayPercent / 100.0f);
                 }
 
-                if (widthTimeScale && avgWidth > 0.0f && entry.charIndex >= 0
-                    && entry.charIndex < static_cast<int>(charWidths.size())) {
-                    float w = charWidths[entry.charIndex];
+                if (charWidths && avgWidth > 0.0f && entry.charIndex >= 0
+                    && entry.charIndex < static_cast<int>(charWidths->size())) {
+                    float w = (*charWidths)[entry.charIndex];
                     if (w > 0.0f) {
                         charDelay *= (w / avgWidth);
                     }
@@ -132,9 +126,7 @@ static void resolveSection(
 std::vector<ResolvedTiming> resolveTimings(
     const std::vector<TimingEntry>& entries,
     float timeScale,
-    bool widthTimeScale,
-    const std::vector<float>& charWidths,
-    const LabelResolver& labelResolver,
+    const std::vector<float>* charWidths,
     std::vector<KeyWaitInfo>* outKeyWaits)
 {
     std::vector<ResolvedTiming> result;
@@ -158,7 +150,7 @@ std::vector<ResolvedTiming> resolveTimings(
             if (i > sectionStart) {
                 resolveSection(entries, sectionStart, i,
                               currentDiff, currentAll,
-                              widthTimeScale, charWidths, labelResolver,
+                              charWidths,
                               currentTime, result, outKeyWaits);
             }
             // 新しい区間の diff/all を設定
@@ -172,7 +164,7 @@ std::vector<ResolvedTiming> resolveTimings(
     if (sectionStart < entries.size()) {
         resolveSection(entries, sectionStart, entries.size(),
                       currentDiff, currentAll,
-                      widthTimeScale, charWidths, labelResolver,
+                      charWidths,
                       currentTime, result, outKeyWaits);
     }
 

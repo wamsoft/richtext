@@ -58,6 +58,11 @@ public:
     void setEvalCallback(EvalCallback cb) { evalCallback_ = std::move(cb); }
 
     /**
+     * ラベル解決コールバックの設定（layout() 前に呼ぶ）
+     */
+    void setLabelResolver(LabelResolver cb) { labelResolver_ = std::move(cb); }
+
+    /**
      * レイアウト実行
      * @param text スタイルタグ付きテキスト（UTF-16）
      * @param maxWidth 最大幅
@@ -132,12 +137,41 @@ public:
      */
     std::vector<LinkRegion> buildLinkRegions() const;
 
+    // ------------------------------------------------------------------
+    // タイミング解決
+    // ------------------------------------------------------------------
+
+    /**
+     * タイミング情報を解決し、各文字の表示開始時間を計算する
+     * @param timeScale 時間スケール係数
+     * @param widthTimeScale 文字幅による時間補正を行うか
+     */
+    void resolveAllTimings(float timeScale = 1.0f,
+                           bool widthTimeScale = false);
+
+    /** 解決済みタイミング配列（未解決時は自動解決） */
+    const std::vector<ResolvedTiming>& getResolvedTimings() const;
+
+    /** キー入力待ち情報（未解決時は自動解決） */
+    const std::vector<KeyWaitInfo>& getKeyWaits() const;
+
+    /** 全体の最大表示遅延時間（ms）（未解決時は自動解決） */
+    float getTotalRenderDelay() const;
+
+    /**
+     * 指定時間までに表示すべき文字数を計算（未解決時は自動解決）
+     * @param time 経過時間（ms）
+     * @return 表示文字数
+     */
+    int calcShowCount(float time) const;
+
 private:
     TagParser::ParseResult parsed_;
     ParagraphLayout para_;
     std::vector<LineLayout> lineLayouts_;
     TagParser::ParseOptions parserOptions_;
     EvalCallback evalCallback_;
+    LabelResolver labelResolver_;
 
     ParagraphLayout::HAlign hAlign_ = ParagraphLayout::HAlign::Left;
     ParagraphLayout::VAlign vAlign_ = ParagraphLayout::VAlign::Top;
@@ -146,6 +180,14 @@ private:
 
     size_t totalCharCount_ = 0;
     bool valid_ = false;
+
+    // タイミング解決結果
+    mutable std::vector<ResolvedTiming> resolvedTimings_;
+    mutable std::vector<KeyWaitInfo> resolvedKeyWaits_;
+    mutable float totalRenderDelay_ = 0;
+    mutable bool timingsResolved_ = false;
+
+    void ensureTimingsResolved() const;
 };
 
 } // namespace richtext

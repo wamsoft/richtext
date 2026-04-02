@@ -21,6 +21,10 @@ void StyledLayout::layout(const std::u16string& text,
     valid_ = false;
     lineLayouts_.clear();
     totalCharCount_ = 0;
+    resolvedTimings_.clear();
+    resolvedKeyWaits_.clear();
+    totalRenderDelay_ = 0;
+    timingsResolved_ = false;
 
     hAlign_ = hAlign;
     vAlign_ = vAlign;
@@ -45,6 +49,7 @@ void StyledLayout::layout(const std::u16string& text,
     TagParser parser;
     parser.setOptions(parserOptions_);
     if (evalCallback_) parser.setEvalCallback(evalCallback_);
+    if (labelResolver_) parser.setLabelResolver(labelResolver_);
     parsed_ = parser.parse(text, defaultStyle, defaultAppearance, styles, appearances);
 
     if (parsed_.plainText.empty()) {
@@ -191,6 +196,78 @@ std::vector<LinkRegion> StyledLayout::buildLinkRegions() const {
     }
 
     return regions;
+}
+
+//------------------------------------------------------------------------------
+// タイミング解決
+//------------------------------------------------------------------------------
+
+void StyledLayout::resolveAllTimings(float timeScale,
+                                     bool widthTimeScale) {
+    resolvedTimings_.clear();
+    resolvedKeyWaits_.clear();
+    totalRenderDelay_ = 0;
+    timingsResolved_ = true;
+
+    if (!valid_) return;
+
+    // 文字幅の配列を構築（widthTimeScale 用）
+    std::vector<float> charWidths;
+    const std::vector<float>* charWidthsPtr = nullptr;
+    if (widthTimeScale) {
+        for (const auto& line : lineLayouts_) {
+            for (const auto& seg : line.segments) {
+                const auto& glyphs = seg.layout.getGlyphs();
+                for (const auto& g : glyphs) {
+                    charWidths.push_back(g.advance);
+                }
+            }
+        }
+        charWidthsPtr = &charWidths;
+    }
+
+    // タイミング情報を解決
+    resolvedTimings_ = resolveTimings(
+        parsed_.timings, timeScale,
+        charWidthsPtr, &resolvedKeyWaits_);
+
+    // 最大遅延時間を計算
+    for (const auto& rt : resolvedTimings_) {
+        if (rt.delay > totalRenderDelay_) totalRenderDelay_ = rt.delay;
+    }
+    for (const auto& kw : resolvedKeyWaits_) {
+        if (kw.delay > totalRenderDelay_) totalRenderDelay_ = kw.delay;
+    }
+}
+
+void StyledLayout::ensureTimingsResolved() const {
+    if (!timingsResolved_) {
+        const_cast<StyledLayout*>(this)->resolveAllTimings();
+    }
+}
+
+const std::vector<ResolvedTiming>& StyledLayout::getResolvedTimings() const {
+    ensureTimingsResolved();
+    return resolvedTimings_;
+}
+
+const std::vector<KeyWaitInfo>& StyledLayout::getKeyWaits() const {
+    ensureTimingsResolved();
+    return resolvedKeyWaits_;
+}
+
+float StyledLayout::getTotalRenderDelay() const {
+    ensureTimingsResolved();
+    return totalRenderDelay_;
+}
+
+int StyledLayout::calcShowCount(float time) const {
+    ensureTimingsResolved();
+    int count = 0;
+    for (const auto& rt : resolvedTimings_) {
+        if (rt.delay <= time) count++;
+    }
+    return count;
 }
 
 } // namespace richtext

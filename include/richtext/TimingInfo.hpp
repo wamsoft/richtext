@@ -2,8 +2,6 @@
 #define RICHTEXT_TIMING_INFO_HPP
 
 #include <vector>
-#include <string>
-#include <functional>
 
 namespace richtext {
 
@@ -17,7 +15,7 @@ struct TimingEntry {
     enum class Type {
         Char,       ///< 通常文字（表示遅延を持つ）
         Wait,       ///< 時間待ち（文字なし、待ち時間のみ）
-        Sync,       ///< 時間同期（絶対時間 or ラベル参照）
+        Sync,       ///< 時間同期（絶対時間）
         KeyWait,    ///< キー入力待ち
         Start,      ///< 区間開始（diff/all を定義）
     };
@@ -36,7 +34,6 @@ struct TimingEntry {
 
     // 同期パラメータ（Type::Sync 用）
     float syncMs = -1.0f;           ///< %D: 絶対同期時間（ms）
-    std::string syncLabel;          ///< %D$: ラベル名（空 = 未指定）
 
     // 区間パラメータ（Type::Start 用）
     float startDiff = 0.0f;         ///< 1文字あたり基準表示時間（ms）
@@ -59,9 +56,6 @@ struct KeyWaitInfo {
     float delay;        ///< その時点での経過時間（ms）
 };
 
-/// ラベル名から時間（ms）を解決するコールバック
-using LabelResolver = std::function<float(const std::string& label)>;
-
 /**
  * タイミング情報を解決し、各文字の表示開始時間を計算する
  *
@@ -70,18 +64,14 @@ using LabelResolver = std::function<float(const std::string& label)>;
  *
  * @param entries       TimingEntry 配列
  * @param timeScale     時間スケール係数
- * @param widthTimeScale 文字幅による時間補正を行うか
- * @param charWidths    各文字の幅配列（widthTimeScale 用）
- * @param labelResolver ラベル解決コールバック（nullptr 可）
+ * @param charWidths    各文字の幅配列（nullptr の場合は幅補正なし）
  * @param outKeyWaits   キー待ち情報の出力先（nullptr 可）
  * @return 各文字の表示開始時間配列
  */
 std::vector<ResolvedTiming> resolveTimings(
     const std::vector<TimingEntry>& entries,
     float timeScale,
-    bool widthTimeScale,
-    const std::vector<float>& charWidths,
-    const LabelResolver& labelResolver = nullptr,
+    const std::vector<float>* charWidths = nullptr,
     std::vector<KeyWaitInfo>* outKeyWaits = nullptr
 );
 

@@ -577,8 +577,8 @@ bool TagParser::parseTag(
                 }
                 if (allDigits) {
                     entry.syncMs = parseFloat(v);
-                } else {
-                    entry.syncLabel = v;
+                } else if (labelResolver_) {
+                    entry.syncMs = labelResolver_(v);
                 }
             }
             state.timings.push_back(entry);

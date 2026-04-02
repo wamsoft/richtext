@@ -175,6 +175,18 @@ int main(int argc, char* argv[]) {
     // StyledLayout でレイアウト
     //--------------------------------------------------------------------------
     richtext::StyledLayout layout;
+
+    // ラベルリゾルバ（テスト用）をパーサーに登録
+    layout.setLabelResolver([](const std::string& label) -> float {
+        printf("  [LabelResolver] resolving '%s' -> ", label.c_str());
+        if (label == "label_end") {
+            printf("10000.0 ms\n");
+            return 10000.0f;
+        }
+        printf("0.0 ms (unknown)\n");
+        return 0.0f;
+    });
+
     layout.layout(taggedText, 600.0f, 400.0f,
                   richtext::ParagraphLayout::HAlign::Left,
                   richtext::ParagraphLayout::VAlign::Top,
@@ -210,8 +222,8 @@ int main(int argc, char* argv[]) {
                    i, t.charIndex, t.waitPercent, t.waitMs);
             break;
         case richtext::TimingEntry::Type::Sync:
-            printf("  [%3zu] Sync     charIndex=%d  syncMs=%.1f  syncLabel='%s'\n",
-                   i, t.charIndex, t.syncMs, t.syncLabel.c_str());
+            printf("  [%3zu] Sync     charIndex=%d  syncMs=%.1f\n",
+                   i, t.charIndex, t.syncMs);
             break;
         case richtext::TimingEntry::Type::KeyWait:
             printf("  [%3zu] KeyWait  charIndex=%d\n",
@@ -252,36 +264,11 @@ int main(int argc, char* argv[]) {
     printf("\n--- Resolved Timings ---\n");
 
     float timeScale = 1.0f;
-    bool widthTimeScale = false;
-    std::vector<float> charWidths;
-
-    // 文字幅配列を構築
-    const auto& lineLayouts = layout.getLineLayouts();
-    for (const auto& line : lineLayouts) {
-        for (const auto& seg : line.segments) {
-            const auto& glyphs = seg.layout.getGlyphs();
-            for (const auto& g : glyphs) {
-                charWidths.push_back(g.advance);
-            }
-        }
-    }
-
-    // ラベルリゾルバ（テスト用）
-    richtext::LabelResolver labelResolver = [](const std::string& label) -> float {
-        printf("  [LabelResolver] resolving '%s' -> ", label.c_str());
-        if (label == "label_end") {
-            printf("10000.0 ms\n");
-            return 10000.0f;
-        }
-        printf("0.0 ms (unknown)\n");
-        return 0.0f;
-    };
 
     std::vector<richtext::KeyWaitInfo> keyWaits;
     auto resolved = richtext::resolveTimings(
         parsed.timings, timeScale,
-        widthTimeScale, charWidths,
-        labelResolver, &keyWaits);
+        nullptr, &keyWaits);
 
     printf("\n  Resolved character timings (%zu entries):\n", resolved.size());
     for (size_t i = 0; i < resolved.size(); ++i) {
