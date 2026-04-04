@@ -253,8 +253,19 @@ void GlyphRenderer::renderPath(const std::vector<tvg::PathCommand>& commands,
             shape->strokeMiterlimit(drawStyle.miterLimit);
         }
 
+        // Apply transforms: flipY first, then external transform
+        tvg::Matrix shapeMat = {1, 0, 0, 0, 1, 0, 0, 0, 1}; // identity
+        bool hasMatrix = false;
         if (flipYMatrix_) {
-            shape->transform(*flipYMatrix_);
+            shapeMat = *flipYMatrix_;
+            hasMatrix = true;
+        }
+        if (transform_) {
+            shapeMat = hasMatrix ? multiplyMatrix(*transform_, shapeMat) : *transform_;
+            hasMatrix = true;
+        }
+        if (hasMatrix) {
+            shape->transform(shapeMat);
         }
 
         canvas_->add(shape);
@@ -306,7 +317,7 @@ void GlyphRenderer::renderBitmap(const GlyphBitmap& bitmap,
         return;
     }
 
-    // 位置・スケールを設定し、必要なら事前計算済み反転行列を合成
+    // 位置・スケールを設定し、必要なら変換行列を合成
     tvg::Matrix m = {
         scale, 0.0f, x,
         0.0f, scale, y,
@@ -314,6 +325,9 @@ void GlyphRenderer::renderBitmap(const GlyphBitmap& bitmap,
     };
     if (flipYMatrix_) {
         m = multiplyMatrix(*flipYMatrix_, m);
+    }
+    if (transform_) {
+        m = multiplyMatrix(*transform_, m);
     }
     picture->transform(m);
 

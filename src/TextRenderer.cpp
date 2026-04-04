@@ -19,14 +19,14 @@ namespace richtext {
 //------------------------------------------------------------------------------
 
 TextRenderer::TextRenderer() {
-    // thorvg 初期化（スレッド数指定）
-    tvg::Initializer::init(4);
 }
 
 TextRenderer::~TextRenderer() {
     glyphRenderer_.reset();
-    canvas_.reset();
-    tvg::Initializer::term();
+    if (!externalCanvas_) {
+        ownedCanvas_.reset();
+    }
+    canvas_ = nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -36,6 +36,7 @@ TextRenderer::~TextRenderer() {
 void TextRenderer::setCanvas(uint32_t* buffer, int width, int height, int pitch) {
     canvasWidth_ = width;
     canvasHeight_ = height;
+    externalCanvas_ = false;
     if (pitch < 0) {
         // pitch が負の場合は上下反転（DIB形式）
         flipYMatrix_.e23 = static_cast<float>(canvasHeight_);
@@ -45,25 +46,34 @@ void TextRenderer::setCanvas(uint32_t* buffer, int width, int height, int pitch)
     } else {
         flipYMatrixPtr_ = nullptr;
     }
-    
+
     // SwCanvas を作成
     // EngineOption::None で dirty region（部分描画最適化）を無効化する。
-    // Default のままだと draw()/sync() 後に fulldraw フラグが false になり、
-    // 次回の draw() 時に preRender() が変更領域を 0x00000000 でクリアしてから
-    // 再描画するため、グリフ周辺の背景が黒で塗りつぶされてしまう。
     auto* rawCanvas = tvg::SwCanvas::gen(tvg::EngineOption::None);
-    canvas_.reset(rawCanvas);
+    ownedCanvas_.reset(rawCanvas);
+    canvas_ = rawCanvas;
     if (!canvas_) return;
-    
+
     uint32_t stridePixels = static_cast<uint32_t>(pitch) / sizeof(uint32_t);
-    canvas_->target(buffer, stridePixels,
+    ownedCanvas_->target(buffer, stridePixels,
                     static_cast<uint32_t>(width), static_cast<uint32_t>(height),
                     tvg::ColorSpace::ARGB8888);
-    
+
     // GlyphRenderer を作成
-    glyphRenderer_ = std::make_unique<GlyphRenderer>(canvas_.get());
+    glyphRenderer_ = std::make_unique<GlyphRenderer>(canvas_);
     glyphRenderer_->setUseCache(useCache_);
     glyphRenderer_->setFlipTransform(flipYMatrixPtr_);
+}
+
+void TextRenderer::setCanvas(tvg::Canvas* canvas) {
+    ownedCanvas_.reset();
+    canvas_ = canvas;
+    externalCanvas_ = true;
+    flipYMatrixPtr_ = nullptr;
+
+    // GlyphRenderer を作成（外部キャンバス使用）
+    glyphRenderer_ = std::make_unique<GlyphRenderer>(canvas_);
+    glyphRenderer_->setUseCache(useCache_);
 }
 
 void TextRenderer::clearCanvas(uint32_t color) {
@@ -92,7 +102,7 @@ void TextRenderer::clearCanvas(uint32_t color) {
 }
 
 void TextRenderer::sync() {
-    if (!canvas_) return;
+    if (!canvas_ || externalCanvas_) return;
     canvas_->draw();
     canvas_->sync();
 }
