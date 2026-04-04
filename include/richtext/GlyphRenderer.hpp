@@ -77,6 +77,15 @@ public:
     void setFlipTransform(const tvg::Matrix* flipYMatrix) {
         flipYMatrix_ = flipYMatrix;
     }
+
+    /**
+     * 描画変換行列の設定（nullptr なら変換なし）
+     * 全シェイプに適用される。flipYMatrix と併用する場合は
+     * flipYMatrix が先に適用され、その後 transform が適用される。
+     */
+    void setTransform(const tvg::Matrix* transform) {
+        transform_ = transform;
+    }
     
     /**
      * キャッシュクリア
@@ -92,6 +101,7 @@ private:
     tvg::Canvas* canvas_;
     bool useCache_ = true;
     const tvg::Matrix* flipYMatrix_ = nullptr;
+    const tvg::Matrix* transform_ = nullptr;
 
     // ------------------------------------------------------------------
     // グリフキャッシュ

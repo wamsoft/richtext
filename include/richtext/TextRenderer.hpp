@@ -69,13 +69,20 @@ public:
     // ------------------------------------------------------------------
     
     /**
-     * 描画先キャンバスの設定
+     * 描画先キャンバスの設定（ピクセルバッファ版）
      * @param buffer ピクセルバッファ（ARGB形式）
      * @param width 幅
      * @param height 高さ
      * @param pitch ピッチ（1行のバイト数、負の値で上下反転）
      */
     void setCanvas(uint32_t* buffer, int width, int height, int pitch);
+
+    /**
+     * 描画先キャンバスの設定（外部キャンバス版）
+     * 既存の tvg::Canvas を直接使用する。キャンバスのライフサイクルは呼び出し側が管理する。
+     * @param canvas 外部 tvg キャンバス
+     */
+    void setCanvas(tvg::Canvas* canvas);
     
     /**
      * キャンバスのクリア
@@ -87,6 +94,11 @@ public:
      * 描画の同期（thorvg の描画完了を待機）
      */
     void sync();
+
+    /**
+     * 内部の GlyphRenderer を取得（transform 設定等に使用）
+     */
+    GlyphRenderer* getGlyphRenderer() const { return glyphRenderer_.get(); }
     
     // ------------------------------------------------------------------
     // キャッシュ制御
@@ -266,9 +278,11 @@ public:
                    const Appearance& appearance);
 
 private:
-    std::unique_ptr<tvg::SwCanvas> canvas_;
+    std::unique_ptr<tvg::SwCanvas> ownedCanvas_;
+    tvg::Canvas* canvas_ = nullptr;          // active canvas (owned or external)
     std::unique_ptr<GlyphRenderer> glyphRenderer_;
-    
+    bool externalCanvas_ = false;
+
     int canvasWidth_ = 0;
     int canvasHeight_ = 0;
     tvg::Matrix flipYMatrix_ = {
