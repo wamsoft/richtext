@@ -19,6 +19,8 @@ namespace richtext {
 //------------------------------------------------------------------------------
 
 TextRenderer::TextRenderer() {
+    // thorvg 初期化（参照カウント方式なので多重呼び出し可）
+    tvg::Initializer::init(4);
 }
 
 TextRenderer::~TextRenderer() {
@@ -27,6 +29,7 @@ TextRenderer::~TextRenderer() {
         ownedCanvas_.reset();
     }
     canvas_ = nullptr;
+    tvg::Initializer::term();
 }
 
 //------------------------------------------------------------------------------
