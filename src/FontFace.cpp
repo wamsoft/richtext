@@ -71,6 +71,15 @@ FT_Error loadGlyph(uint32_t glyphId, float size, FT_Face face,
 // 共通初期化（バリアブルフォント軸情報の取得）
 // ----------------------------------------------------------------------------
 
+// FT_Face の family_name / style_name を取り込む
+static void captureFaceNames(FT_Face face,
+                             std::string& familyName,
+                             std::string& styleName) {
+    if (!face) return;
+    if (face->family_name) familyName = face->family_name;
+    if (face->style_name)  styleName  = face->style_name;
+}
+
 static void initVariableAxes(FT_Face face, FT_Library ftLib,
                              std::vector<minikin::FontVariation>& axes,
                              bool& isVariable,
@@ -128,6 +137,7 @@ FontFace::FontFace(const std::string& name,
         throw std::runtime_error("Failed to open font face: " + name);
     }
 
+    captureFaceNames(ftFace_, familyName_, styleName_);
     initVariableAxes(ftFace_, ftLib, axes_, isVariable_,
                      hasWdthAxis_, wdthMin_, wdthMax_, wdthDefault_);
 }
@@ -163,6 +173,7 @@ FontFace::FontFace(const std::string& name,
     fontData_ = nullptr;
     fontDataSize_ = stream->size;
 
+    captureFaceNames(ftFace_, familyName_, styleName_);
     initVariableAxes(ftFace_, ftLib, axes_, isVariable_,
                      hasWdthAxis_, wdthMin_, wdthMax_, wdthDefault_);
 }

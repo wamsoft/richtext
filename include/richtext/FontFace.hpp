@@ -115,6 +115,18 @@ public:
     const std::string& getFontName() const { return fontName_; }
 
     /**
+     * フォントファイルから取得した family 名（例: "Noto Sans JP"）
+     * 取得できなかった場合は空文字列
+     */
+    const std::string& getFamilyName() const { return familyName_; }
+
+    /**
+     * フォントファイルから取得した style 名（例: "Regular", "Bold Italic"）
+     * 取得できなかった場合は空文字列
+     */
+    const std::string& getStyleName() const { return styleName_; }
+
+    /**
      * FT_Face の取得（内部使用）
      */
     FT_Face getFTFace() const { return ftFace_; }
@@ -190,6 +202,8 @@ public:
 
 private:
     std::string fontName_;
+    std::string familyName_;
+    std::string styleName_;
     int fontIndex_;
 
     FT_Face ftFace_ = nullptr;

@@ -173,11 +173,28 @@ bool FontManager::unregisterFont(const std::string& name) {
 }
 
 std::shared_ptr<FontFace> FontManager::getFont(const std::string& name) const {
+    // 登録名で完全一致
     auto it = fonts_.find(name);
-    if (it == fonts_.end() || it->second.empty()) {
-        return nullptr;
+    if (it != fonts_.end() && !it->second.empty()) {
+        return it->second[0].face;
     }
-    return it->second[0].face;
+    // フォントファイルの family / "family Style" でフォールバック検索
+    for (const auto& kv : fonts_) {
+        for (const auto& entry : kv.second) {
+            if (!entry.face) continue;
+            const auto& fam = entry.face->getFamilyName();
+            const auto& sty = entry.face->getStyleName();
+            if (!fam.empty() && fam == name) return entry.face;
+            if (!fam.empty() && !sty.empty() &&
+                fam.size() + 1 + sty.size() == name.size() &&
+                name.compare(0, fam.size(), fam) == 0 &&
+                name[fam.size()] == ' ' &&
+                name.compare(fam.size() + 1, sty.size(), sty) == 0) {
+                return entry.face;
+            }
+        }
+    }
+    return nullptr;
 }
 
 std::shared_ptr<minikin::FontCollection> FontManager::createCollection(
@@ -187,23 +204,53 @@ std::shared_ptr<minikin::FontCollection> FontManager::createCollection(
         return nullptr;
     }
 
+    auto matchesFaceName = [](const FontEntry& entry, const std::string& query) {
+        if (!entry.face) return false;
+        const auto& fam = entry.face->getFamilyName();
+        const auto& sty = entry.face->getStyleName();
+        if (!fam.empty() && fam == query) return true;
+        if (!fam.empty() && !sty.empty() &&
+            fam.size() + 1 + sty.size() == query.size() &&
+            query.compare(0, fam.size(), fam) == 0 &&
+            query[fam.size()] == ' ' &&
+            query.compare(fam.size() + 1, sty.size(), sty) == 0) {
+            return true;
+        }
+        return false;
+    };
+
     std::vector<std::shared_ptr<minikin::FontFamily>> families;
 
     for (const auto& name : names) {
+        std::vector<minikin::Font> fonts;
+
+        // 1. 登録名で完全一致
         auto it = fonts_.find(name);
-        if (it == fonts_.end() || it->second.empty()) {
-            fprintf(stderr, "Font not found: %s\n", name.c_str());
-            continue;
+        if (it != fonts_.end() && !it->second.empty()) {
+            for (const auto& entry : it->second) {
+                fonts.push_back(
+                    minikin::Font::Builder(entry.face)
+                        .setWeight(entry.weight)
+                        .setSlant(entry.slant)
+                        .build());
+            }
+        } else {
+            // 2. フォントファイル内の family / "family Style" 名でフォールバック
+            for (const auto& kv : fonts_) {
+                for (const auto& entry : kv.second) {
+                    if (!matchesFaceName(entry, name)) continue;
+                    fonts.push_back(
+                        minikin::Font::Builder(entry.face)
+                            .setWeight(entry.weight)
+                            .setSlant(entry.slant)
+                            .build());
+                }
+            }
         }
 
-        // 同じ名前の全エントリ（複数ウェイト）を1つの FontFamily にまとめる
-        std::vector<minikin::Font> fonts;
-        for (const auto& entry : it->second) {
-            fonts.push_back(
-                minikin::Font::Builder(entry.face)
-                    .setWeight(entry.weight)
-                    .setSlant(entry.slant)
-                    .build());
+        if (fonts.empty()) {
+            fprintf(stderr, "Font not found: %s\n", name.c_str());
+            continue;
         }
 
         auto family = std::make_shared<minikin::FontFamily>(std::move(fonts));

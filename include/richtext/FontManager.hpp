@@ -126,13 +126,19 @@ public:
     
     /**
      * 登録済みフォントの取得
-     * @param name 登録名
+     * 登録名で完全一致しなければ、フォントファイル内の family 名
+     * または "family Style" 連結名でフォールバック検索する。
+     * @param name 登録名 / family 名 / "family Style"
      * @return FontFace のポインタ（未登録時 nullptr）
      */
     std::shared_ptr<FontFace> getFont(const std::string& name) const;
-    
+
     /**
      * フォントコレクション作成
+     * 各要素は登録名で完全一致を試み、失敗した場合は
+     * フォントファイル内の family 名 / "family Style" 連結名で検索する。
+     * family 単独一致の場合、複数登録エントリ（異なる weight/style）が
+     * 同じ family なら 1 つの FontFamily に集約される。
      * @param names フォント名のリスト（優先度順）
      * @return minikin::FontCollection の shared_ptr
      */
