@@ -65,10 +65,10 @@ set(RICHTEXT_LIB_SOURCES
 )
 
 add_library(richtext_lib STATIC ${RICHTEXT_LIB_SOURCES})
+# thorvg の include path は target_link_libraries(thorvg) で INTERFACE 経由で
+# 伝播するので明示する必要はない (umbrella 経由で生成される場合も同じ)。
 target_include_directories(richtext_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext/thorvg/inc
-    ${CMAKE_CURRENT_BINARY_DIR}/ext/thorvg
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/minikin/include
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/minikin/libs
 )
