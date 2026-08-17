@@ -7,40 +7,6 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(richtext)
 endif()
 
-if(NOT TARGET thorvg)
-    # ThorVG configuration - static library, SW engine only
-    option(TVG_BUILD_SHARED "Build shared library" OFF)
-    option(TVG_THREADS "Enable multi-threading task scheduler" ON)
-    option(TVG_PARTIAL "Enable Partial Rendering" ON)
-    option(TVG_SIMD "Enable CPU Vectorization (SIMD)" ON)
-    option(TVG_LOG "Enable log message" OFF)
-    option(TVG_FILE_IO "Enable File IO calls" OFF)
-
-    # Enable SW engine only
-    option(TVG_ENGINE_SW "Enable Software Rasterizer Engine" ON)
-    option(TVG_ENGINE_GL "Enable OpenGL Rasterizer Engine" OFF)
-    option(TVG_ENGINE_WG "Enable WebGPU Rasterizer Engine" OFF)
-
-    # Loaders - enable what we need
-    option(TVG_LOADER_SVG "Enable SVG Loader" OFF)
-    option(TVG_LOADER_PNG "Enable PNG Loader" OFF)
-    option(TVG_LOADER_JPG "Enable JPG Loader" OFF)
-    option(TVG_LOADER_LOTTIE "Enable Lottie Loader" OFF)
-    option(TVG_LOADER_TTF "Enable TTF Loader" OFF)
-    option(TVG_LOADER_WEBP "Enable WebP Loader" OFF)
-
-    # Disable savers and tools
-    option(TVG_SAVER_GIF "Enable GIF Saver" OFF)
-    option(TVG_TOOL_SVG2PNG "Build svg2png tool" OFF)
-    option(TVG_TOOL_LOTTIE2GIF "Build lottie2gif tool" OFF)
-
-    # Disable bindings and tests
-    option(TVG_BINDINGS_CAPI "Enable C API bindings" OFF)
-    option(TVG_BUILD_TESTS "Build unit tests" OFF)
-
-    add_subdirectory(ext/thorvg)
-endif()
-
 if(NOT TARGET minikin)
     add_subdirectory(ext/minikin)
 endif()
@@ -77,6 +43,7 @@ set(RICHTEXT_LIB_SOURCES
     src/FontFace.cpp
     src/FontManager.cpp
     src/GlyphwareBackend.cpp
+    src/Raster.cpp
     src/TextStyle.cpp
     src/Appearance.cpp
     src/TextLayout.cpp
@@ -90,14 +57,17 @@ set(RICHTEXT_LIB_SOURCES
 )
 
 add_library(richtext_lib STATIC ${RICHTEXT_LIB_SOURCES})
-# thorvg の include path は target_link_libraries(thorvg) で INTERFACE 経由で
-# 伝播するので明示する必要はない (umbrella 経由で生成される場合も同じ)。
 target_include_directories(richtext_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/minikin/include
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/minikin/libs
 )
-target_link_libraries(richtext_lib PUBLIC thorvg minikin)
+target_link_libraries(richtext_lib PUBLIC minikin)
+
+# windows.h の min/max マクロ避け（従来は thorvg.h 経由で定義されていた）
+if(MSVC)
+    target_compile_definitions(richtext_lib PUBLIC NOMINMAX)
+endif()
 
 # glyphware が使える場合は既定バックエンドを有効化する。無い場合、
 # richtext は FontManager::setFontBackend() でホストからバックエンドを
@@ -143,6 +113,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         endif()
         add_executable(glyphware_poc sample/glyphware_poc.cpp)
         target_link_libraries(glyphware_poc PRIVATE richtext_lib glyphware)
+
     endif()
 endif()
 

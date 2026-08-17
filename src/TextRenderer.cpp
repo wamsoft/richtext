@@ -18,18 +18,10 @@ namespace richtext {
 // コンストラクタ・デストラクタ
 //------------------------------------------------------------------------------
 
-TextRenderer::TextRenderer() {
-    // thorvg 初期化（参照カウント方式なので多重呼び出し可）
-    tvg::Initializer::init(4);
-}
+TextRenderer::TextRenderer() = default;
 
 TextRenderer::~TextRenderer() {
     glyphRenderer_.reset();
-    if (!externalCanvas_) {
-        ownedCanvas_.reset();
-    }
-    canvas_ = nullptr;
-    tvg::Initializer::term();
 }
 
 //------------------------------------------------------------------------------
@@ -50,64 +42,24 @@ void TextRenderer::setCanvas(uint32_t* buffer, int width, int height, int pitch)
         flipYMatrixPtr_ = nullptr;
     }
 
-    // SwCanvas を作成
-    // EngineOption::None で dirty region（部分描画最適化）を無効化する。
-    auto* rawCanvas = tvg::SwCanvas::gen(tvg::EngineOption::None);
-    ownedCanvas_.reset(rawCanvas);
-    canvas_ = rawCanvas;
-    if (!canvas_) return;
-
-    uint32_t stridePixels = static_cast<uint32_t>(pitch) / sizeof(uint32_t);
-    ownedCanvas_->target(buffer, stridePixels,
-                    static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                    tvg::ColorSpace::ARGB8888);
+    const int stridePixels = static_cast<int>(static_cast<size_t>(pitch) / sizeof(uint32_t));
+    target_ = RenderTarget(buffer, width, height, stridePixels);
 
     // GlyphRenderer を作成
-    glyphRenderer_ = std::make_unique<GlyphRenderer>(canvas_);
+    glyphRenderer_ = std::make_unique<GlyphRenderer>(target_);
     glyphRenderer_->setUseCache(useCache_);
     glyphRenderer_->setFlipTransform(flipYMatrixPtr_);
 }
 
-void TextRenderer::setCanvas(tvg::Canvas* canvas) {
-    ownedCanvas_.reset();
-    canvas_ = canvas;
-    externalCanvas_ = true;
-    flipYMatrixPtr_ = nullptr;
-
-    // GlyphRenderer を作成（外部キャンバス使用）
-    glyphRenderer_ = std::make_unique<GlyphRenderer>(canvas_);
-    glyphRenderer_->setUseCache(useCache_);
-}
-
 void TextRenderer::clearCanvas(uint32_t color) {
-    if (!canvas_) return;
-    
-    // キャンバスをクリア（描画オブジェクトを削除してリセット）
-    // thorvg 1.0 では clear() の代わりに手動でやる必要がある可能性
-    
+    if (!target_.valid()) return;
     if (color != 0) {
-        // 背景色で塗りつぶし
-        tvg::Shape* bg = tvg::Shape::gen();
-        if (bg) {
-            bg->appendRect(0, 0, static_cast<float>(canvasWidth_),
-                          static_cast<float>(canvasHeight_), 0, 0);
-            uint8_t a = (color >> 24) & 0xFF;
-            uint8_t r = (color >> 16) & 0xFF;
-            uint8_t g = (color >> 8) & 0xFF;
-            uint8_t b = color & 0xFF;
-            bg->fill(r, g, b, a);
-            if (flipYMatrixPtr_) {
-                bg->transform(*flipYMatrixPtr_);
-            }
-            canvas_->add(bg);
-        }
+        target_.fillRect(0, 0, target_.width(), target_.height(), color);
     }
 }
 
 void TextRenderer::sync() {
-    if (!canvas_ || externalCanvas_) return;
-    canvas_->draw();
-    canvas_->sync();
+    // 直接バッファへ書き込むので同期は不要（API 互換のために残している）
 }
 
 //------------------------------------------------------------------------------
@@ -471,33 +423,29 @@ void TextRenderer::drawGlyph(const TextLayout& layout,
 void TextRenderer::drawRect(float x, float y, float width, float height,
                              uint32_t fillColor, uint32_t strokeColor,
                              float strokeWidth) {
-    if (!canvas_) return;
+    if (!target_.valid()) return;
 
-    tvg::Shape* shape = tvg::Shape::gen();
-    if (!shape) return;
+    // 上下反転指定時は Y を反転して配置する
+    float top = y;
+    if (flipYMatrixPtr_) {
+        top = flipYMatrixPtr_->e22 * y + flipYMatrixPtr_->e23 - height;
+    }
 
-    shape->appendRect(x, y, width, height, 0, 0);
-
-    uint8_t fa = (fillColor >> 24) & 0xFF;
-    uint8_t fr = (fillColor >> 16) & 0xFF;
-    uint8_t fg = (fillColor >> 8) & 0xFF;
-    uint8_t fb = fillColor & 0xFF;
-    shape->fill(fr, fg, fb, fa);
+    if (fillColor != 0) {
+        target_.fillRectF(x, top, width, height, fillColor);
+    }
 
     if (strokeWidth > 0 && strokeColor != 0) {
-        uint8_t sa = (strokeColor >> 24) & 0xFF;
-        uint8_t sr = (strokeColor >> 16) & 0xFF;
-        uint8_t sg = (strokeColor >> 8) & 0xFF;
-        uint8_t sb = strokeColor & 0xFF;
-        shape->strokeWidth(strokeWidth);
-        shape->strokeFill(sr, sg, sb, sa);
+        // ストロークは辺の中心に乗る（内側・外側に半分ずつ）
+        const float hw = strokeWidth * 0.5f;
+        const float l = x - hw, t = top - hw;
+        const float w = width + strokeWidth;
+        target_.fillRectF(l, t, w, strokeWidth, strokeColor);                        // 上辺
+        target_.fillRectF(l, top + height - hw, w, strokeWidth, strokeColor);        // 下辺
+        target_.fillRectF(l, top + hw, strokeWidth, height - strokeWidth, strokeColor);  // 左辺
+        target_.fillRectF(x + width - hw, top + hw, strokeWidth, height - strokeWidth,
+                          strokeColor);                                              // 右辺
     }
-
-    if (flipYMatrixPtr_) {
-        shape->transform(*flipYMatrixPtr_);
-    }
-
-    canvas_->add(shape);
 }
 
 } // namespace richtext

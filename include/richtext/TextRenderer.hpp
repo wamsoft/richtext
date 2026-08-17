@@ -7,7 +7,7 @@
 #include <memory>
 #include <cstdint>
 
-#include <thorvg.h>
+#include "richtext/Raster.hpp"
 
 #include "richtext/TextStyle.hpp"
 #include "richtext/Appearance.hpp"
@@ -77,13 +77,7 @@ public:
      */
     void setCanvas(uint32_t* buffer, int width, int height, int pitch);
 
-    /**
-     * 描画先キャンバスの設定（外部キャンバス版）
-     * 既存の tvg::Canvas を直接使用する。キャンバスのライフサイクルは呼び出し側が管理する。
-     * @param canvas 外部 tvg キャンバス
-     */
-    void setCanvas(tvg::Canvas* canvas);
-    
+
     /**
      * キャンバスのクリア
      * @param color クリア色（ARGB）
@@ -91,7 +85,9 @@ public:
     void clearCanvas(uint32_t color = 0);
     
     /**
-     * 描画の同期（thorvg の描画完了を待機）
+     * 描画の同期
+     *
+     * 現在は即時描画なので何もしない（呼び出し側の互換のために残している）。
      */
     void sync();
 
@@ -278,19 +274,17 @@ public:
                    const Appearance& appearance);
 
 private:
-    std::unique_ptr<tvg::SwCanvas> ownedCanvas_;
-    tvg::Canvas* canvas_ = nullptr;          // active canvas (owned or external)
+    RenderTarget target_;
     std::unique_ptr<GlyphRenderer> glyphRenderer_;
     bool externalCanvas_ = false;
 
     int canvasWidth_ = 0;
     int canvasHeight_ = 0;
-    tvg::Matrix flipYMatrix_ = {
+    Matrix2D flipYMatrix_ = {
         1.0f, 0.0f, 0.0f,
-        0.0f, -1.0f, 0.0f,
-        0.0f, 0.0f, 1.0f
+        0.0f, -1.0f, 0.0f
     };
-    const tvg::Matrix* flipYMatrixPtr_ = nullptr;
+    const Matrix2D* flipYMatrixPtr_ = nullptr;
     
     bool useCache_ = true;
 };

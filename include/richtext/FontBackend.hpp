@@ -89,6 +89,46 @@ struct FontGlyphBitmapView {
 };
 
 /**
+ * グリフのラスタライズ指定
+ *
+ * transform は**フォントユニット（y-up）→ ピクセル（y-up）**のアフィン。
+ * サイズ・斜体シアー・幅スケール・サブピクセル位置をすべてここに畳み込む。
+ * 描画先が y-down の場合は y 行を反転した行列を渡し、返ったマスクを
+ * (left, -top) に置く。
+ */
+struct FontRenderTransform {
+    float xx = 1.0f, xy = 0.0f, dx = 0.0f;
+    float yx = 0.0f, yy = 1.0f, dy = 0.0f;
+};
+
+enum class FontStrokeJoin { Miter, Round, Bevel };
+enum class FontStrokeCap { Butt, Round, Square };
+
+struct FontRenderParams {
+    FontRenderTransform transform;
+    bool bold = false;              // 合成ボールド
+    bool italic = false;            // 合成イタリック
+    float strokeWidth = 0.0f;       // 0 = 塗り、>0 = 縁取り（内部は塗らない）
+    FontStrokeJoin join = FontStrokeJoin::Round;
+    FontStrokeCap cap = FontStrokeCap::Round;
+    float miterLimit = 4.0f;
+};
+
+/**
+ * 8bit カバレッジマスク
+ * left/top はペン原点からのオフセット（ピクセル、**y 上向き正**）。
+ * buffer は同一 face への次のラスタライズ呼び出しまで有効。
+ */
+struct FontGlyphMask {
+    int left = 0;
+    int top = 0;
+    int width = 0;
+    int rows = 0;
+    int pitch = 0;
+    const uint8_t* buffer = nullptr;
+};
+
+/**
  * バリアブルフォントの軸座標
  */
 struct FontVarCoord {
@@ -184,6 +224,16 @@ public:
      */
     virtual bool getGlyphOutline(uint32_t glyphId, bool bold, bool italic,
                                  FontOutlineSink& sink) const = 0;
+
+    /**
+     * グリフをラスタライズして 8bit カバレッジマスクを得る
+     *
+     * サイズ・変形は params.transform に畳み込まれる（バックエンド側は
+     * アウトラインに焼き込んでからラスタライズするので、後段でのスケールに
+     * よる劣化やずれが無い）。アウトラインを持たないグリフでは false。
+     */
+    virtual bool getGlyphMask(uint32_t glyphId, const FontRenderParams& params,
+                              FontGlyphMask& out) = 0;
 
     /**
      * ラスタライズ

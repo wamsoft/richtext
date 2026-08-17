@@ -7,6 +7,7 @@
 
 #include "richtext/FontFace.hpp"
 #include "richtext/FontManager.hpp"
+#include "richtext/Raster.hpp"
 
 #include <cstring>
 #include <cmath>
@@ -30,89 +31,8 @@ static int32_t sUniqueIdCounter = 0;
 // バリアブルフォント軸タグ
 constexpr uint32_t kWdthTag = 0x77647468;  // 'wdth'
 
-/**
- * バックエンドのアウトライン（フォントユニット・y-up）を thorvg パスに変換する
- * sink。scale でピクセルに変換し、Y 軸を反転する。
- */
-class TvgPathSink : public FontOutlineSink {
-public:
-    TvgPathSink(float scale,
-                std::vector<tvg::PathCommand>& commands,
-                std::vector<tvg::Point>& points)
-        : scale_(scale), commands_(commands), points_(points) {}
-
-    void moveTo(float x, float y) override {
-        commands_.push_back(tvg::PathCommand::MoveTo);
-        cur_ = point(x, y);
-        points_.push_back(cur_);
-    }
-
-    void lineTo(float x, float y) override {
-        commands_.push_back(tvg::PathCommand::LineTo);
-        cur_ = point(x, y);
-        points_.push_back(cur_);
-    }
-
-    void quadTo(float cx, float cy, float x, float y) override {
-        // 2次ベジェ → 3次ベジェ
-        const tvg::Point c = point(cx, cy);
-        const tvg::Point e = point(x, y);
-        const tvg::Point c1{cur_.x + (2.0f / 3.0f) * (c.x - cur_.x),
-                            cur_.y + (2.0f / 3.0f) * (c.y - cur_.y)};
-        const tvg::Point c2{e.x + (2.0f / 3.0f) * (c.x - e.x),
-                            e.y + (2.0f / 3.0f) * (c.y - e.y)};
-        commands_.push_back(tvg::PathCommand::CubicTo);
-        points_.push_back(c1);
-        points_.push_back(c2);
-        points_.push_back(e);
-        cur_ = e;
-    }
-
-    void cubicTo(float c1x, float c1y, float c2x, float c2y,
-                 float x, float y) override {
-        commands_.push_back(tvg::PathCommand::CubicTo);
-        points_.push_back(point(c1x, c1y));
-        points_.push_back(point(c2x, c2y));
-        cur_ = point(x, y);
-        points_.push_back(cur_);
-    }
-
-    void close() override {
-        commands_.push_back(tvg::PathCommand::Close);
-    }
-
-private:
-    tvg::Point point(float x, float y) const {
-        return tvg::Point{x * scale_, -y * scale_};  // Y軸反転
-    }
-
-    float scale_;
-    std::vector<tvg::PathCommand>& commands_;
-    std::vector<tvg::Point>& points_;
-    tvg::Point cur_{0.0f, 0.0f};
-};
-
-/**
- * COLR グラデーションのカラーストップを thorvg の Fill に流し込む
- */
-void applyColorStops(tvg::Fill* fill, const std::vector<FontColorStop>& stops) {
-    if (!fill || stops.empty()) return;
-    std::vector<tvg::Fill::ColorStop> out;
-    out.reserve(stops.size());
-    for (const auto& s : stops) {
-        tvg::Fill::ColorStop cs;
-        cs.offset = s.offset;
-        cs.r = s.r;
-        cs.g = s.g;
-        cs.b = s.b;
-        cs.a = s.a;
-        out.push_back(cs);
-    }
-    fill->colorStops(out.data(), static_cast<uint32_t>(out.size()));
-}
-
-
 } // anonymous namespace
+
 
 // ----------------------------------------------------------------------------
 // FontFace 実装
@@ -256,28 +176,6 @@ void FontFace::GetFontExtent(minikin::MinikinExtent* extent,
 bool FontFace::isColorGlyph(uint32_t /*glyphId*/) const {
     return face_ && face_->isColorFont();
 }
-
-bool FontFace::getGlyphPath(uint32_t glyphId, float size,
-                            std::vector<tvg::PathCommand>& commands,
-                            std::vector<tvg::Point>& points) const {
-    if (!face_) return false;
-
-    // カラー絵文字はパス取得不可
-    if (isColorGlyph(glyphId)) {
-        return false;
-    }
-
-    float upem = faceMetrics_.unitsPerEm;
-    if (upem <= 0) upem = 1000.0f;
-
-    commands.clear();
-    points.clear();
-
-    // アウトラインはフォントユニットで返るので要求サイズへスケールする
-    TvgPathSink sink(size / upem, commands, points);
-    return face_->getGlyphOutline(glyphId, false, false, sink);
-}
-
 bool FontFace::getGlyphBitmap(uint32_t glyphId, float size,
                               GlyphBitmap& bitmap) const {
     if (!face_) return false;
@@ -337,7 +235,8 @@ bool FontFace::getGlyphBitmap(uint32_t glyphId, float size,
 // COLR (v0/v1) カラーグリフのレンダリング
 //
 // ペイントグラフの走査はバックエンドが行い（FontBackendFace::getColorLayers）、
-// ここは受け取ったレイヤー列を thorvg で合成して RGBA ビットマップにするだけ。
+// ここは受け取ったレイヤーをカバレッジマスクとして描き、塗りを乗せて RGBA
+// ビットマップに合成する。
 //==============================================================================
 
 bool FontFace::renderCOLRv1Glyph(uint32_t glyphId, float size,
@@ -352,10 +251,9 @@ bool FontFace::renderCOLRv1Glyph(uint32_t glyphId, float size,
 
     float upem = faceMetrics_.unitsPerEm;
     if (upem <= 0) upem = 1000.0f;
-    const float unitScale = size / upem;
 
     // 描画範囲。ClipBox があればそれを使い、無ければフォントサイズから見積もる
-    // （座標は y-up ピクセル。ビットマップは y-down なので上下を入れ替える）
+    // （レイヤー座標は y-up ピクセル。ビットマップは y-down なので上下を入れ替える）
     int originX, originY, bmpW, bmpH;
     if (box.valid) {
         originX = static_cast<int>(std::floor(box.xMin));
@@ -366,72 +264,64 @@ bool FontFace::renderCOLRv1Glyph(uint32_t glyphId, float size,
         bmpW = static_cast<int>(std::ceil(size * 1.2f));
         bmpH = static_cast<int>(std::ceil(size * 1.2f));
         originX = 0;
-        originY = -static_cast<int>(std::ceil(faceMetrics_.ascenderUnits * unitScale));
+        originY = -static_cast<int>(std::ceil(faceMetrics_.ascenderUnits * size / upem));
     }
 
     if (bmpW <= 0 || bmpH <= 0) return false;
     if (bmpW > 1024 || bmpH > 1024) return false;   // 安全上限
 
     std::vector<uint32_t> buffer(static_cast<size_t>(bmpW) * bmpH, 0);
-    auto canvas = tvg::SwCanvas::gen();
-    if (!canvas) return false;
-    canvas->target(buffer.data(), bmpW, bmpW, bmpH, tvg::ColorSpace::ARGB8888);
+    RenderTarget target(buffer.data(), bmpW, bmpH, bmpW);
 
     for (const auto& layer : layers) {
-        // アウトライン（フォントユニット・y-up）→ ピクセル・y-down
-        std::vector<tvg::PathCommand> commands;
-        std::vector<tvg::Point> points;
-        TvgPathSink sink(1.0f, commands, points);   // スケールは transform 側が持つ
-        if (!face_->getGlyphOutline(layer.glyphId, false, false, sink)) continue;
-        if (commands.empty()) continue;
+        // レイヤー行列はビットマップ（y-down）側の空間で解釈する。バックエンドの
+        // ラスタライザは y-up で受け取るので F*M*F（F = diag(1,-1)）に直し、
+        // 原点 (originX, originY) 分を平行移動で寄せる。
+        FontRenderParams params;
+        params.transform.xx = layer.transform[0];
+        params.transform.xy = -layer.transform[1];
+        params.transform.dx = layer.transform[2] - static_cast<float>(originX);
+        params.transform.yx = -layer.transform[3];
+        params.transform.yy = layer.transform[4];
+        params.transform.dy = -layer.transform[5] + static_cast<float>(originY);
 
-        auto* shape = tvg::Shape::gen();
-        if (!shape) continue;
-        shape->appendPath(commands.data(), static_cast<uint32_t>(commands.size()),
-                          points.data(), static_cast<uint32_t>(points.size()));
+        FontGlyphMask mask;
+        if (!face_->getGlyphMask(layer.glyphId, params, mask)) continue;
 
-        // レイヤー行列はデザイン単位→ピクセルのスケールを含む。アウトラインは
-        // TvgPathSink で y 反転済みなので、行列はそのまま適用し、平行移動分だけ
-        // ビットマップ原点をずらす（FreeType のペイント座標系に合わせた扱い）。
-        const float* m = layer.transform;
-        const tvg::Matrix mat = {
-            m[0], m[1], m[2] - static_cast<float>(originX),
-            m[3], m[4], m[5] - static_cast<float>(originY),
-            0.0f, 0.0f, 1.0f
-        };
-        shape->transform(mat);
-
+        Paint paint;
         switch (layer.paint.kind) {
-        case FontPaintKind::LinearGradient: {
-            auto* grad = tvg::LinearGradient::gen();
-            grad->linear(layer.paint.x0 - originX, -layer.paint.y0 - originY,
-                         layer.paint.x1 - originX, -layer.paint.y1 - originY);
-            applyColorStops(grad, layer.paint.stops);
-            shape->fill(grad);
+        case FontPaintKind::LinearGradient:
+            paint.type = PaintType::LinearGradient;
+            paint.x0 = layer.paint.x0 - originX;
+            paint.y0 = -layer.paint.y0 - originY;
+            paint.x1 = layer.paint.x1 - originX;
+            paint.y1 = -layer.paint.y1 - originY;
             break;
-        }
-        case FontPaintKind::RadialGradient: {
-            auto* grad = tvg::RadialGradient::gen();
-            grad->radial(layer.paint.x1 - originX, -layer.paint.y1 - originY,
-                         layer.paint.r1,
-                         layer.paint.x0 - originX, -layer.paint.y0 - originY,
-                         layer.paint.r0);
-            applyColorStops(grad, layer.paint.stops);
-            shape->fill(grad);
+        case FontPaintKind::RadialGradient:
+            paint.type = PaintType::RadialGradient;
+            paint.x0 = layer.paint.x0 - originX;
+            paint.y0 = -layer.paint.y0 - originY;
+            paint.r0 = layer.paint.r0;
+            paint.x1 = layer.paint.x1 - originX;
+            paint.y1 = -layer.paint.y1 - originY;
+            paint.r1 = layer.paint.r1;
             break;
-        }
         case FontPaintKind::Solid:
         default:
-            shape->fill(layer.paint.r, layer.paint.g, layer.paint.b, layer.paint.a);
+            paint.type = PaintType::Solid;
             break;
         }
+        paint.r = layer.paint.r;
+        paint.g = layer.paint.g;
+        paint.b = layer.paint.b;
+        paint.a = layer.paint.a;
+        for (const auto& s : layer.paint.stops) {
+            paint.stops.push_back({s.offset, s.r, s.g, s.b, s.a});
+        }
 
-        canvas->add(shape);
+        target.blendMask(mask.buffer, mask.width, mask.rows, mask.pitch,
+                         mask.left, -mask.top, paint);
     }
-
-    canvas->update();
-    canvas->draw();
-    canvas->sync();
 
     // ARGB → RGBA
     bitmap.width = bmpW;

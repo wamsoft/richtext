@@ -113,6 +113,37 @@ public:
         return face_->glyphOutline(glyphId, adapter, bold, italic);
     }
 
+    bool getGlyphMask(uint32_t glyphId, const FontRenderParams& params,
+                      FontGlyphMask& out) override {
+        glyphware::RenderParams rp;
+        rp.transform.xx = params.transform.xx;
+        rp.transform.xy = params.transform.xy;
+        rp.transform.dx = params.transform.dx;
+        rp.transform.yx = params.transform.yx;
+        rp.transform.yy = params.transform.yy;
+        rp.transform.dy = params.transform.dy;
+        rp.bold = params.bold;
+        rp.italic = params.italic;
+        rp.strokeWidth = params.strokeWidth;
+        rp.join = params.join == FontStrokeJoin::Miter   ? glyphware::StrokeJoin::Miter
+                : params.join == FontStrokeJoin::Bevel   ? glyphware::StrokeJoin::Bevel
+                                                         : glyphware::StrokeJoin::Round;
+        rp.cap = params.cap == FontStrokeCap::Butt    ? glyphware::StrokeCap::Butt
+               : params.cap == FontStrokeCap::Square  ? glyphware::StrokeCap::Square
+                                                      : glyphware::StrokeCap::Round;
+        rp.miterLimit = params.miterLimit;
+
+        glyphware::GlyphMask mask;
+        if (!face_->renderGlyphMask(glyphId, rp, mask)) return false;
+        out.left = mask.left;
+        out.top = mask.top;
+        out.width = mask.width;
+        out.rows = mask.rows;
+        out.pitch = mask.pitch;
+        out.buffer = mask.buffer;
+        return true;
+    }
+
     bool getGlyphBitmap(uint32_t glyphId, float pixelSize, bool color,
                         bool bold, bool italic, FontGlyphBitmapView& out) override {
         if (!face_->setPixelSize(toPixelSize(pixelSize))) return false;

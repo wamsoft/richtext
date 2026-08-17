@@ -9,9 +9,6 @@
 #include <minikin/MinikinFont.h>
 #include <minikin/FontVariation.h>
 
-// thorvg
-#include <thorvg.h>
-
 #include "richtext/FontBackend.hpp"
 
 namespace richtext {
@@ -119,6 +116,11 @@ public:
     const std::shared_ptr<FontBackendFace>& getBackendFace() const { return face_; }
 
     /**
+     * face のメトリクス（フォントユニット基準）
+     */
+    const FontFaceMetrics& getFaceMetrics() const { return faceMetrics_; }
+
+    /**
      * バリアブルフォントかどうか
      */
     bool isVariableFont() const { return isVariable_; }
@@ -150,19 +152,6 @@ public:
      */
     void applyWidth(float width) const;
 
-    /**
-     * グリフパスの取得（thorvg用）
-     * @param glyphId グリフID
-     * @param size フォントサイズ
-     * @param commands 出力パスコマンド
-     * @param points 出力パス座標
-     * @return 成功時 true（カラー絵文字等の場合 false）
-     */
-    bool getGlyphPath(uint32_t glyphId,
-                      float size,
-                      std::vector<tvg::PathCommand>& commands,
-                      std::vector<tvg::Point>& points) const;
-    
     /**
      * グリフビットマップの取得（カラー絵文字用）
      * @param glyphId グリフID

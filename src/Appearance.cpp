@@ -169,7 +169,7 @@ void Appearance::setOutline(uint32_t argb, float width,
 void Appearance::addOutline(uint32_t argb, float width,
                             float offsetX, float offsetY) {
     DrawStyle style = DrawStyle::stroke(argb, width, offsetX, offsetY);
-    style.strokeJoin = tvg::StrokeJoin::Round;
+    style.strokeJoin = StrokeJoin::Round;
 
     int mainIdx = findBottomMainFillIndex();
     int limit = (mainIdx >= 0) ? mainIdx : static_cast<int>(styles_.size());

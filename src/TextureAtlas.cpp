@@ -9,7 +9,6 @@
 #include "richtext/GlyphRenderer.hpp"
 #include "richtext/TextRenderer.hpp"
 
-#include <thorvg.h>
 #include <algorithm>
 #include <cstring>
 
@@ -124,17 +123,11 @@ bool TextureAtlas::renderGlyphToAtlas(const GlyphInfo& glyph,
         return false;  // テクスチャ溢れ
     }
 
-    // 一時的な thorvg キャンバスでグリフをレンダリング
-    auto* canvas = tvg::SwCanvas::gen();
-    if (!canvas) return false;
-
+    // 一時バッファへグリフをレンダリング
     std::vector<uint32_t> tempBuffer(static_cast<size_t>(cellWidth) * cellHeight, 0);
-    canvas->target(tempBuffer.data(), static_cast<uint32_t>(cellWidth),
-                   static_cast<uint32_t>(cellWidth), static_cast<uint32_t>(cellHeight),
-                   tvg::ColorSpace::ARGB8888);
+    RenderTarget cell(tempBuffer.data(), cellWidth, cellHeight, cellWidth);
 
-    // GlyphRenderer でレンダリング
-    GlyphRenderer renderer(canvas);
+    GlyphRenderer renderer(cell);
     renderer.setUseCache(false);
 
     // グリフの描画位置（セル内のベースライン位置）
@@ -142,9 +135,6 @@ bool TextureAtlas::renderGlyphToAtlas(const GlyphInfo& glyph,
     float localY = margin + maxOffsetY + style.fontSize * 0.8f;
 
     renderer.renderGlyph(glyph, localX, localY, style, appearance);
-
-    canvas->draw();
-    canvas->sync();
 
     // tempBuffer → renderBuffer_ にコピー
     for (int row = 0; row < cellHeight; ++row) {
@@ -156,9 +146,6 @@ bool TextureAtlas::renderGlyphToAtlas(const GlyphInfo& glyph,
         std::memcpy(&renderBuffer_[dstOffset], &tempBuffer[srcOffset],
                      copyWidth * sizeof(uint32_t));
     }
-
-    // キャンバス解放
-    delete canvas;
 
     // アトラスエントリ登録
     AtlasEntry entry;

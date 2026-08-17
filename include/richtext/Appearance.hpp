@@ -4,7 +4,7 @@
 #include <vector>
 #include <cstdint>
 
-#include <thorvg.h>
+#include "richtext/Raster.hpp"
 
 namespace richtext {
 
@@ -66,12 +66,12 @@ struct DrawStyle {
     /**
      * 線端キャップ
      */
-    tvg::StrokeCap strokeCap = tvg::StrokeCap::Square;
+    StrokeCap strokeCap = StrokeCap::Square;
     
     /**
      * 線結合
      */
-    tvg::StrokeJoin strokeJoin = tvg::StrokeJoin::Miter;
+    StrokeJoin strokeJoin = StrokeJoin::Miter;
     
     /**
      * マイター限界
@@ -100,7 +100,7 @@ struct DrawStyle {
     /**
      * カラーストップ
      */
-    std::vector<tvg::Fill::ColorStop> colorStops;
+    std::vector<ColorStop> colorStops;
     
     /**
      * 線形グラデーション: 開始点・終了点

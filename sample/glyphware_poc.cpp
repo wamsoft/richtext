@@ -9,7 +9,7 @@
  * 2. 同じテキストを richtext::FontFace 経由 (FontBackend 実装) でもレイアウトし、
  *    グリフID / アドバンス / エクステントが一致するか
  * 3. グリフアウトラインが一致するか (font unit スケール変換込み)
- * 4. glyphware のアウトラインから thorvg で実際に描画できるか (BMP 出力)
+ * 4. glyphware のマスクから実際に描画できるか (BMP 出力)
  *
  * 本体ライブラリ (richtext_lib) には一切手を入れていない。
  */
@@ -40,7 +40,7 @@
 #include <minikin/MinikinPaint.h>
 #include <minikin/MinikinRect.h>
 
-#include <thorvg.h>
+#include "richtext/Raster.hpp"
 
 #include "richtext/FontFace.hpp"
 #include "richtext/FontManager.hpp"
@@ -152,62 +152,30 @@ private:
 };
 
 //------------------------------------------------------------------------------
-// glyphware アウトライン -> thorvg パス
+// アウトラインの点を集めるだけの sink（形状比較用）
 //------------------------------------------------------------------------------
 
-class TvgPathSink : public glyphware::OutlineSink {
-public:
-    TvgPathSink(float scale, float originX, float originY,
-                std::vector<tvg::PathCommand>& cmds, std::vector<tvg::Point>& pts)
-        : scale_(scale), ox_(originX), oy_(originY), cmds_(cmds), pts_(pts) {}
+struct Pt { float x, y; };
 
-    void moveTo(float x, float y) override {
-        cmds_.push_back(tvg::PathCommand::MoveTo);
-        pts_.push_back(pt(x, y));
-        cur_ = pt(x, y);
-        start_ = cur_;
-    }
-    void lineTo(float x, float y) override {
-        cmds_.push_back(tvg::PathCommand::LineTo);
-        pts_.push_back(pt(x, y));
-        cur_ = pt(x, y);
-    }
-    void quadTo(float cx, float cy, float x, float y) override {
-        // 2次 -> 3次ベジェ昇格 (richtext::FontFace::outlineToPath と同じ)
-        const tvg::Point c = pt(cx, cy);
-        const tvg::Point e = pt(x, y);
-        tvg::Point c1{cur_.x + 2.0f / 3.0f * (c.x - cur_.x),
-                      cur_.y + 2.0f / 3.0f * (c.y - cur_.y)};
-        tvg::Point c2{e.x + 2.0f / 3.0f * (c.x - e.x),
-                      e.y + 2.0f / 3.0f * (c.y - e.y)};
-        cmds_.push_back(tvg::PathCommand::CubicTo);
-        pts_.push_back(c1);
-        pts_.push_back(c2);
-        pts_.push_back(e);
-        cur_ = e;
-    }
+class CollectSink : public glyphware::OutlineSink, public richtext::FontOutlineSink {
+public:
+    CollectSink(float scale, std::vector<Pt>& pts) : s_(scale), pts_(pts) {}
+    void moveTo(float x, float y) override { push(x, y); ++contours_; }
+    void lineTo(float x, float y) override { push(x, y); }
+    void quadTo(float cx, float cy, float x, float y) override { push(cx, cy); push(x, y); }
     void cubicTo(float c1x, float c1y, float c2x, float c2y, float x, float y) override {
-        cmds_.push_back(tvg::PathCommand::CubicTo);
-        pts_.push_back(pt(c1x, c1y));
-        pts_.push_back(pt(c2x, c2y));
-        pts_.push_back(pt(x, y));
-        cur_ = pt(x, y);
+        push(c1x, c1y); push(c2x, c2y); push(x, y);
     }
-    void close() override {
-        cmds_.push_back(tvg::PathCommand::Close);
-        cur_ = start_;
-    }
+    void close() override { ++closes_; }
+    int contours() const { return contours_; }
+    int closes() const { return closes_; }
 
 private:
-    tvg::Point pt(float x, float y) const {
-        // font unit (y-up) -> ピクセル (y-down)
-        return tvg::Point{ox_ + x * scale_, oy_ - y * scale_};
-    }
-    float scale_, ox_, oy_;
-    std::vector<tvg::PathCommand>& cmds_;
-    std::vector<tvg::Point>& pts_;
-    tvg::Point cur_{0, 0};
-    tvg::Point start_{0, 0};
+    void push(float x, float y) { pts_.push_back({x * s_, -y * s_}); }
+    float s_;
+    std::vector<Pt>& pts_;
+    int contours_ = 0;
+    int closes_ = 0;
 };
 
 //------------------------------------------------------------------------------
@@ -271,7 +239,7 @@ struct Bbox {
     }
 };
 
-Bbox bboxOf(const std::vector<tvg::Point>& pts) {
+Bbox bboxOf(const std::vector<Pt>& pts) {
     Bbox b;
     for (const auto& p : pts) b.add(p.x, p.y);
     return b;
@@ -286,9 +254,6 @@ int32_t sUniqueId = 10000;
 int main() {
     setvbuf(stdout, nullptr, _IONBF, 0);
     printf("=== glyphware / minikin 統合 PoC ===\n\n");
-
-    // richtext::FontFace の COLRv1 合成が thorvg を使うため、先に初期化しておく
-    tvg::Initializer::init(0);
 
     const std::u16string text = u"Hello 日本語 World!";
     const float fontSize = 32.0f;
@@ -437,19 +402,22 @@ int main() {
         const uint32_t gid = s.gw->glyphIndex(s.cp);
         const float upem = s.gw->lineMetrics().unitsPerEm;
 
-        std::vector<tvg::PathCommand> gwCmds;
-        std::vector<tvg::Point> gwPts;
-        TvgPathSink sink(fontSize / upem, 0.0f, 0.0f, gwCmds, gwPts);
+        std::vector<Pt> gwPts;
+        CollectSink sink(fontSize / upem, gwPts);
         const bool gwOk = s.gw->glyphOutline(gid, sink);
 
+        // richtext 経路: バックエンド face 越しに同じアウトラインを取る
         auto ftFace = fm.getFont(s.ftName);
-        std::vector<tvg::PathCommand> ftCmds;
-        std::vector<tvg::Point> ftPts;
-        const bool ftOk = ftFace && ftFace->getGlyphPath(gid, fontSize, ftCmds, ftPts);
+        std::vector<Pt> ftPts;
+        bool ftOk = false;
+        if (ftFace) {
+            CollectSink rtSink(fontSize / upem, ftPts);
+            ftOk = ftFace->getBackendFace()->getGlyphOutline(gid, false, false, rtSink);
+        }
 
-        printf("  %s gid=%u  glyphware:%s(cmd=%zu pt=%zu)  richtext:%s(cmd=%zu pt=%zu)\n",
-               s.label, gid, gwOk ? "OK" : "NG", gwCmds.size(), gwPts.size(),
-               ftOk ? "OK" : "NG", ftCmds.size(), ftPts.size());
+        printf("  %s gid=%u  glyphware:%s(pt=%zu)  richtext:%s(pt=%zu)\n",
+               s.label, gid, gwOk ? "OK" : "NG", gwPts.size(),
+               ftOk ? "OK" : "NG", ftPts.size());
         if (gwOk && ftOk) {
             const Bbox b1 = bboxOf(gwPts);
             const Bbox b2 = bboxOf(ftPts);
@@ -581,15 +549,14 @@ int main() {
     printf("\n");
 
     //--------------------------------------------------------------------------
-    // F) glyphware のアウトラインを thorvg で実描画
+    // F) glyphware のマスクを合成して実描画
     //--------------------------------------------------------------------------
     const int W = 640, H = 120;
     {
         std::vector<uint32_t> buffer(static_cast<size_t>(W) * H, 0xFF202020);
-        auto* canvas = tvg::SwCanvas::gen();
-        canvas->target(buffer.data(), W, W, H, tvg::ColorSpace::ARGB8888);
+        richtext::RenderTarget target(buffer.data(), W, H, W);
 
-        float penX = 20.0f;
+        const float penX = 20.0f;
         const float baseY = 80.0f;
         for (size_t i = 0; i < gwLayout.nGlyphs(); ++i) {
             const auto* mf = gwLayout.getFont(static_cast<int>(i));
@@ -597,29 +564,26 @@ int main() {
             glyphware::Face& face = gwf->face();
             const uint32_t gid = gwLayout.getGlyphId(static_cast<int>(i));
             const float upem = face.lineMetrics().unitsPerEm;
+            const float scale = fontSize / upem;
 
-            std::vector<tvg::PathCommand> cmds;
-            std::vector<tvg::Point> pts;
-            TvgPathSink sink(fontSize / upem,
-                             penX + gwLayout.getX(static_cast<int>(i)),
-                             baseY + gwLayout.getY(static_cast<int>(i)), cmds, pts);
-            if (!face.glyphOutline(gid, sink) || cmds.empty()) continue;
+            // フォントユニット(y-up) → 描画先(y-down)。y 行を反転して渡し、
+            // 返ったマスクを (left, -top) に置く
+            glyphware::RenderParams rp;
+            rp.transform.xx = scale;
+            rp.transform.yy = scale;
+            rp.transform.dx = penX + gwLayout.getX(static_cast<int>(i));
+            rp.transform.dy = -(baseY + gwLayout.getY(static_cast<int>(i)));
 
-            auto* shape = tvg::Shape::gen();
-            shape->appendPath(cmds.data(), static_cast<uint32_t>(cmds.size()),
-                              pts.data(), static_cast<uint32_t>(pts.size()));
-            shape->fill(255, 220, 120);
-            canvas->add(shape);
+            glyphware::GlyphMask mask;
+            if (!face.renderGlyphMask(gid, rp, mask)) continue;
+            target.blendMask(mask.buffer, mask.width, mask.rows, mask.pitch,
+                             mask.left, -mask.top, 255, 220, 120, 255);
         }
-        (void)penX;
-        canvas->draw();
-        canvas->sync();
 
         if (saveBMP("glyphware_poc.bmp", buffer.data(), W, H)) {
             printf("--- 描画 ---\n  glyphware_poc.bmp (%dx%d) を出力\n", W, H);
         }
     }
-    tvg::Initializer::term();
 
     printf("\n=== Done ===\n");
     return 0;
