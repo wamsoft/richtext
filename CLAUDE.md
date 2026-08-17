@@ -65,9 +65,10 @@ make build BUILD_TYPE=Debug            # デバッグビルド
    `FontServiceIntf` 経由で包んだものを `FontManager::setFontBackend()` で差し込む。
    本体・thorvg・richtext で FT_Face とフォントバイト列が共有される
 
-COLRv1 の合成だけは FreeType の FT_COLR API に直接依存するため、
-`FontBackendFace::nativeFTFace()` が FT_Face を返す場合のみ動作する
-（返さないバックエンドでは素のビットマップにフォールバック）。
+カラー絵文字は 2 系統ある。CBDT/sbix のビットマップは
+`getGlyphBitmap()`、COLR (v0/v1) のベクター定義は `getColorLayers()` で
+「アウトライン + 変換 + 塗り」のレイヤー列に展開してもらい、richtext 側で
+thorvg に合成する（`FontFace::renderCOLRv1Glyph`）。
 
 ### データフロー
 
