@@ -7,13 +7,11 @@
 #include <vector>
 #include <functional>
 
-// FreeType
-#include <ft2build.h>
-#include FT_FREETYPE_H
-
 // minikin
 #include <minikin/FontCollection.h>
 #include <minikin/FontStyle.h>
+
+#include "richtext/FontBackend.hpp"
 
 namespace richtext {
 
@@ -32,17 +30,10 @@ using FontDataBuffer = std::shared_ptr<std::vector<uint8_t>>;
 using FontDataLoader = std::function<FontDataBuffer(const std::string& name)>;
 
 /**
- * FreeType ストリームローダー
- * フォント名を受け取り、FT_Stream を返す。
- * 呼び出し元が FT_Stream の寿命管理を行う。
- * 読み込み失敗時は nullptr を返す。
- */
-using FontStreamLoader = std::function<FT_Stream(const std::string& name)>;
-
-/**
  * フォント管理クラス（シングルトン）
  *
  * フォントの登録・解除、FontCollection の作成、ロケール管理を行う。
+ * グリフの実体供給は FontBackend が担う。
  */
 class FontManager {
 public:
@@ -52,7 +43,12 @@ public:
     static FontManager& instance();
 
     /**
-     * 初期化（FreeType ライブラリの初期化）
+     * 初期化
+     *
+     * バックエンド未設定なら、登録済みの FontDataLoader を使って既定の
+     * バックエンド（glyphware）を生成する。ホスト側のフォントエンジンを
+     * 使う場合は initialize() より前に setFontBackend() を呼ぶこと。
+     *
      * @return 成功時 true
      */
     bool initialize();
@@ -61,27 +57,37 @@ public:
      * 終了処理
      */
     void terminate();
-    
-    /**
-     * FreeType ライブラリの取得
-     */
-    FT_Library getFTLibrary() const { return ftLibrary_; }
 
     // ------------------------------------------------------------------
-    // ローダー登録
+    // バックエンド / ローダー登録
     // ------------------------------------------------------------------
+
+    /**
+     * フォントバックエンドを注入する
+     *
+     * 吉里吉里本体のように独自の統一フォントエンジンを持つホストは、
+     * ここに実装を差し込むことで face とフォントバイト列を本体と共有できる。
+     * 未設定の場合は initialize() が glyphware バックエンドを自前で用意する。
+     */
+    void setFontBackend(std::shared_ptr<FontBackend> backend);
+
+    /**
+     * 現在のバックエンド（未初期化なら nullptr）
+     */
+    const std::shared_ptr<FontBackend>& getFontBackend() const { return backend_; }
 
     /**
      * フォントデータローダー（バッファ方式）を登録
-     * ストリームローダーより優先される。
+     * 既定バックエンドのバイト供給に使われる。
+     * initialize() の前後どちらで呼んでもよい（ローダーは呼び出し時に参照される）。
      */
     void setFontDataLoader(FontDataLoader loader);
 
     /**
-     * FreeType ストリームローダーを登録
-     * バッファローダーが未登録、または nullptr を返した場合に使用される。
+     * 登録済みローダーでフォントバイト列を読む
+     * @return 読めなかった場合 nullptr
      */
-    void setFontStreamLoader(FontStreamLoader loader);
+    FontDataBuffer loadFontBytes(const std::string& name) const;
 
     // ------------------------------------------------------------------
     // フォント管理
@@ -201,11 +207,10 @@ private:
     FontManager(FontManager&&) = delete;
     FontManager& operator=(FontManager&&) = delete;
     
-    FT_Library ftLibrary_ = nullptr;
     bool initialized_ = false;
 
+    std::shared_ptr<FontBackend> backend_;
     FontDataLoader dataLoader_;
-    FontStreamLoader streamLoader_;
 
     struct FontEntry {
         std::shared_ptr<FontFace> face;

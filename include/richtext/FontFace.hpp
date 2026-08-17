@@ -5,17 +5,18 @@
 #include <vector>
 #include <memory>
 
-// FreeType
-#include <ft2build.h>
-#include FT_FREETYPE_H
-#include FT_OUTLINE_H
-
 // minikin
 #include <minikin/MinikinFont.h>
 #include <minikin/FontVariation.h>
 
 // thorvg
 #include <thorvg.h>
+
+#include "richtext/FontBackend.hpp"
+
+// FreeType の不透明ハンドル（COLRv1 走査でのみ使う。FreeType ヘッダは
+// FontFace.cpp 内でのみ必要）
+typedef struct FT_FaceRec_* FT_Face;
 
 namespace richtext {
 
@@ -33,33 +34,23 @@ struct GlyphBitmap {
 
 /**
  * フォントフェイスクラス
- * 
- * FreeType と minikin の橋渡しを行う。
- * minikin::MinikinFont を継承し、グリフメトリクスの取得を提供。
- * また、thorvg 用のパスデータ取得機能も提供。
+ *
+ * FontBackend（既定は glyphware、あるいはホスト注入のフォントエンジン）と
+ * minikin の橋渡しを行う。minikin::MinikinFont を継承し、グリフメトリクスの
+ * 取得を提供。また、thorvg 用のパスデータ取得機能も提供。
  */
 class FontFace : public minikin::MinikinFont {
 public:
     /**
-     * コンストラクタ（バッファ方式）
+     * コンストラクタ
      * @param name フォント名（識別用）
-     * @param data フォントデータバッファ（shared_ptr で寿命管理）
+     * @param face バックエンドが開いた face
      * @param index フォントインデックス（OTC用）
      */
     FontFace(const std::string& name,
-             std::shared_ptr<std::vector<uint8_t>> data,
+             std::shared_ptr<FontBackendFace> face,
              int index = 0);
 
-    /**
-     * コンストラクタ（ストリーム方式）
-     * @param name フォント名（識別用）
-     * @param stream FreeType ストリーム（FontFace が所有権を取得）
-     * @param index フォントインデックス（OTC用）
-     */
-    FontFace(const std::string& name,
-             FT_Stream stream,
-             int index = 0);
-    
     /**
      * デストラクタ
      */
@@ -92,10 +83,10 @@ public:
                        const minikin::FontFakery& fakery) const override;
     
     /**
-     * フォントデータへのアクセス
+     * フォントデータへのアクセス（minikin が自前の hb_face を作るのに使う）
      */
-    const void* GetFontData() const override { return fontData_; }
-    size_t GetFontSize() const override { return fontDataSize_; }
+    const void* GetFontData() const override;
+    size_t GetFontSize() const override;
     int GetFontIndex() const override { return fontIndex_; }
     
     /**
@@ -127,9 +118,14 @@ public:
     const std::string& getStyleName() const { return styleName_; }
 
     /**
-     * FT_Face の取得（内部使用）
+     * バックエンド face の取得（内部使用）
      */
-    FT_Face getFTFace() const { return ftFace_; }
+    const std::shared_ptr<FontBackendFace>& getBackendFace() const { return face_; }
+
+    /**
+     * FT_Face の取得（COLRv1 走査用。バックエンドが公開しない場合 nullptr）
+     */
+    FT_Face getFTFace() const;
 
     /**
      * バリアブルフォントかどうか
@@ -195,7 +191,7 @@ public:
     bool isColorGlyph(uint32_t glyphId) const;
     
     /**
-     * FT_Face を明示的に解放
+     * バックエンド face を明示的に解放
      * （shared_ptr の解放順序問題を回避するため）
      */
     void releaseFace();
@@ -206,29 +202,24 @@ private:
     std::string styleName_;
     int fontIndex_;
 
+    std::shared_ptr<FontBackendFace> face_;
+    FontFaceMetrics faceMetrics_;
+
+    // COLRv1 走査用にバックエンドから借りた FT_Face（所有しない。
+    // ホスト注入バックエンド等、公開されない場合は nullptr）
     FT_Face ftFace_ = nullptr;
-    const void* fontData_ = nullptr;
-    size_t fontDataSize_ = 0;
-    std::shared_ptr<std::vector<uint8_t>> fontDataBuffer_;  // バッファ方式
-    FT_Stream ftStream_ = nullptr;                          // ストリーム方式
-    
+
     std::vector<minikin::FontVariation> axes_;
     bool isVariable_ = false;
     bool hasWdthAxis_ = false;
     float wdthMin_ = 100.0f;
     float wdthMax_ = 100.0f;
     float wdthDefault_ = 100.0f;
-    
-    /**
-     * FreeType アウトラインを thorvg パスに変換
-     */
-    static void outlineToPath(FT_Outline* outline,
-                              float scale,
-                              std::vector<tvg::PathCommand>& commands,
-                              std::vector<tvg::Point>& points);
 
     /**
      * COLRv1 ペイントグラフを走査して RGBA ビットマップを生成
+     * （FreeType の FT_COLR API に直接依存するため、バックエンドが FT_Face を
+     *   公開している場合のみ動作する）
      */
     bool renderCOLRv1Glyph(uint32_t glyphId, float size,
                            GlyphBitmap& bitmap) const;

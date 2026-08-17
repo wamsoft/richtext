@@ -46,12 +46,37 @@ if(NOT TARGET minikin)
 endif()
 
 #------------------------------------------------------------------------------
+# glyphware（統一フォントエンジン）
+#
+# 既定バックエンド GlyphwareFontBackend の実体。親プロジェクト（krkrz umbrella）
+# が既に glyphware target を提供している場合はそれを共有し、単体ビルドでは
+# GLYPHWARE_DIR のソースツリーを取り込む。
+#------------------------------------------------------------------------------
+set(GLYPHWARE_DIR "" CACHE PATH "Path to the glyphware source tree")
+
+if(NOT TARGET glyphware AND GLYPHWARE_DIR)
+    if(NOT EXISTS "${GLYPHWARE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR "GLYPHWARE_DIR does not point to a glyphware tree: ${GLYPHWARE_DIR}")
+    endif()
+    # glyphware は harfbuzz::harfbuzz を要求するが、minikin の ext/harfbuzz が
+    # 作るのは bare `harfbuzz` と `HarfBuzz::HarfBuzz` なのでエイリアスを補う
+    # （thorvg 側も同じ回避をしている）
+    if(TARGET harfbuzz AND NOT TARGET harfbuzz::harfbuzz)
+        add_library(harfbuzz::harfbuzz ALIAS harfbuzz)
+    endif()
+    set(GLYPHWARE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLYPHWARE_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${GLYPHWARE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/glyphware)
+endif()
+
+#------------------------------------------------------------------------------
 # richtext 共通ライブラリ（プラグインとサンプルで共有）
 #------------------------------------------------------------------------------
 
 set(RICHTEXT_LIB_SOURCES
     src/FontFace.cpp
     src/FontManager.cpp
+    src/GlyphwareBackend.cpp
     src/TextStyle.cpp
     src/Appearance.cpp
     src/TextLayout.cpp
@@ -73,6 +98,17 @@ target_include_directories(richtext_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/minikin/libs
 )
 target_link_libraries(richtext_lib PUBLIC thorvg minikin)
+
+# glyphware が使える場合は既定バックエンドを有効化する。無い場合、
+# richtext は FontManager::setFontBackend() でホストからバックエンドを
+# 注入されないと動作しない。
+if(TARGET glyphware)
+    target_link_libraries(richtext_lib PUBLIC glyphware)
+    target_compile_definitions(richtext_lib PUBLIC RICHTEXT_USE_GLYPHWARE)
+else()
+    message(STATUS "richtext: glyphware not available "
+                   "(set GLYPHWARE_DIR); a font backend must be injected at runtime")
+endif()
 
 #------------------------------------------------------------------------------
 # サンプル実行ファイル（トップレベルプロジェクトの場合のみビルド）
@@ -100,22 +136,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     #         -DGLYPHWARE_DIR=d:/work/kirikiri/glyphware
     #--------------------------------------------------------------------------
     option(RICHTEXT_GLYPHWARE_POC "Build the glyphware-backed MinikinFont PoC" OFF)
-    set(GLYPHWARE_DIR "" CACHE PATH "Path to the glyphware source tree")
 
     if(RICHTEXT_GLYPHWARE_POC)
-        if(NOT EXISTS "${GLYPHWARE_DIR}/CMakeLists.txt")
-            message(FATAL_ERROR "GLYPHWARE_DIR does not point to a glyphware tree: ${GLYPHWARE_DIR}")
+        if(NOT TARGET glyphware)
+            message(FATAL_ERROR "RICHTEXT_GLYPHWARE_POC needs glyphware (set GLYPHWARE_DIR)")
         endif()
-        # glyphware は harfbuzz::harfbuzz を要求するが、minikin の ext/harfbuzz が
-        # 作るのは bare `harfbuzz` と `HarfBuzz::HarfBuzz` なのでエイリアスを補う
-        # （thorvg 側も同じ回避をしている）
-        if(TARGET harfbuzz AND NOT TARGET harfbuzz::harfbuzz)
-            add_library(harfbuzz::harfbuzz ALIAS harfbuzz)
-        endif()
-        set(GLYPHWARE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-        set(GLYPHWARE_INSTALL OFF CACHE BOOL "" FORCE)
-        add_subdirectory(${GLYPHWARE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/glyphware)
-
         add_executable(glyphware_poc sample/glyphware_poc.cpp)
         target_link_libraries(glyphware_poc PRIVATE richtext_lib glyphware)
     endif()

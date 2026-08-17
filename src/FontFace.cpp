@@ -1,7 +1,8 @@
 /**
  * FontFace.cpp
- * 
- * FreeType と minikin の橋渡しを行うフォントフェイスクラス
+ *
+ * FontBackend（glyphware / ホスト注入フォントエンジン）と minikin の橋渡しを
+ * 行うフォントフェイスクラス
  */
 
 #include "richtext/FontFace.hpp"
@@ -10,13 +11,16 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <stdexcept>
 #include <vector>
 #include <functional>
 
+// COLRv1 のペイントグラフ走査だけは FreeType の API に直接依存する
+// （バックエンドが FT_Face を公開している場合のみ動作する）
+#include <ft2build.h>
+#include FT_FREETYPE_H
 #include FT_OUTLINE_H
-#include FT_TRUETYPE_TABLES_H
 #include FT_COLOR_H
-#include FT_MULTIPLE_MASTERS_H
 
 // minikin types
 #include <minikin/MinikinPaint.h>
@@ -30,470 +34,96 @@ namespace {
 // ユニークID生成
 static int32_t sUniqueIdCounter = 0;
 
-// FreeType 定数
-constexpr FT_Int32 LOAD_FLAG =
-    FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP | FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
+// バリアブルフォント軸タグ
+constexpr uint32_t kWdthTag = 0x77647468;  // 'wdth'
 
-// FreeType の座標を float に変換
+// FreeType の座標を float に変換（COLRv1 経路で使用）
 constexpr float FTPosToFloat(FT_Pos x) { return x / 64.0f; }
 
-// float を FreeType の 26.6 固定小数点に変換
-constexpr FT_F26Dot6 FloatToF26Dot6(float x) {
-    return static_cast<FT_F26Dot6>(x * 64);
-}
+/**
+ * バックエンドのアウトライン（フォントユニット・y-up）を thorvg パスに変換する
+ * sink。scale でピクセルに変換し、Y 軸を反転する。
+ */
+class TvgPathSink : public FontOutlineSink {
+public:
+    TvgPathSink(float scale,
+                std::vector<tvg::PathCommand>& commands,
+                std::vector<tvg::Point>& points)
+        : scale_(scale), commands_(commands), points_(points) {}
 
-// グリフのロード
-FT_Error loadGlyph(uint32_t glyphId, float size, FT_Face face,
-                   FT_Int32 flags = LOAD_FLAG) {
-    FT_Error err;
-    if (FT_HAS_FIXED_SIZES(face)) {
-        // 固定サイズビットマップフォント（CBDT等）
-        err = FT_Select_Size(face, 0);
-    } else {
-        // COLRv1 等のアウトラインベースフォントは FT_Set_Pixel_Sizes を使用
-        err = FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(size + 0.5f));
-    }
-    if (err != 0) {
-        return err;
+    void moveTo(float x, float y) override {
+        commands_.push_back(tvg::PathCommand::MoveTo);
+        cur_ = point(x, y);
+        points_.push_back(cur_);
     }
 
-    err = FT_Load_Glyph(face, glyphId, flags);
-    if (err != 0) {
-        return err;
+    void lineTo(float x, float y) override {
+        commands_.push_back(tvg::PathCommand::LineTo);
+        cur_ = point(x, y);
+        points_.push_back(cur_);
     }
 
-    return FT_Err_Ok;
-}
-
-} // anonymous namespace
-
-// ----------------------------------------------------------------------------
-// 共通初期化（バリアブルフォント軸情報の取得）
-// ----------------------------------------------------------------------------
-
-// FT_Face の family_name / style_name を取り込む
-static void captureFaceNames(FT_Face face,
-                             std::string& familyName,
-                             std::string& styleName) {
-    if (!face) return;
-    if (face->family_name) familyName = face->family_name;
-    if (face->style_name)  styleName  = face->style_name;
-}
-
-static void initVariableAxes(FT_Face face, FT_Library ftLib,
-                             std::vector<minikin::FontVariation>& axes,
-                             bool& isVariable,
-                             bool& hasWdthAxis, float& wdthMin,
-                             float& wdthMax, float& wdthDefault) {
-    FT_MM_Var* mmVar = nullptr;
-    if (FT_Get_MM_Var(face, &mmVar) == 0 && mmVar) {
-        isVariable = true;
-        for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
-            FT_Var_Axis& axis = mmVar->axis[i];
-            float defVal = axis.def / 65536.0f;
-            axes.emplace_back(static_cast<minikin::AxisTag>(axis.tag), defVal);
-            if (axis.tag == FT_MAKE_TAG('w','d','t','h')) {
-                hasWdthAxis = true;
-                wdthMin = axis.minimum / 65536.0f;
-                wdthMax = axis.maximum / 65536.0f;
-                wdthDefault = defVal;
-            }
-        }
-        FT_Done_MM_Var(ftLib, mmVar);
-    }
-}
-
-// ----------------------------------------------------------------------------
-// FontFace 実装
-// ----------------------------------------------------------------------------
-
-FontFace::FontFace(const std::string& name,
-                   std::shared_ptr<std::vector<uint8_t>> data,
-                   int index)
-    : minikin::MinikinFont(sUniqueIdCounter++)
-    , fontName_(name)
-    , fontIndex_(index)
-{
-    if (!data || data->empty()) {
-        throw std::runtime_error("Empty font data for: " + name);
+    void quadTo(float cx, float cy, float x, float y) override {
+        // 2次ベジェ → 3次ベジェ
+        const tvg::Point c = point(cx, cy);
+        const tvg::Point e = point(x, y);
+        const tvg::Point c1{cur_.x + (2.0f / 3.0f) * (c.x - cur_.x),
+                            cur_.y + (2.0f / 3.0f) * (c.y - cur_.y)};
+        const tvg::Point c2{e.x + (2.0f / 3.0f) * (c.x - e.x),
+                            e.y + (2.0f / 3.0f) * (c.y - e.y)};
+        commands_.push_back(tvg::PathCommand::CubicTo);
+        points_.push_back(c1);
+        points_.push_back(c2);
+        points_.push_back(e);
+        cur_ = e;
     }
 
-    fontDataBuffer_ = std::move(data);
-    fontData_ = fontDataBuffer_->data();
-    fontDataSize_ = fontDataBuffer_->size();
-
-    FT_Library ftLib = FontManager::instance().getFTLibrary();
-    if (!ftLib) {
-        throw std::runtime_error("FreeType library not initialized");
+    void cubicTo(float c1x, float c1y, float c2x, float c2y,
+                 float x, float y) override {
+        commands_.push_back(tvg::PathCommand::CubicTo);
+        points_.push_back(point(c1x, c1y));
+        points_.push_back(point(c2x, c2y));
+        cur_ = point(x, y);
+        points_.push_back(cur_);
     }
 
-    FT_Open_Args args = {};
-    args.flags = FT_OPEN_MEMORY;
-    args.memory_base = static_cast<const FT_Byte*>(fontData_);
-    args.memory_size = fontDataSize_;
-
-    FT_Error err = FT_Open_Face(ftLib, &args, index, &ftFace_);
-    if (err != 0) {
-        throw std::runtime_error("Failed to open font face: " + name);
+    void close() override {
+        commands_.push_back(tvg::PathCommand::Close);
     }
 
-    captureFaceNames(ftFace_, familyName_, styleName_);
-    initVariableAxes(ftFace_, ftLib, axes_, isVariable_,
-                     hasWdthAxis_, wdthMin_, wdthMax_, wdthDefault_);
-}
-
-FontFace::FontFace(const std::string& name,
-                   FT_Stream stream,
-                   int index)
-    : minikin::MinikinFont(sUniqueIdCounter++)
-    , fontName_(name)
-    , fontIndex_(index)
-    , ftStream_(stream)
-{
-    if (!stream) {
-        throw std::runtime_error("Null FT_Stream for: " + name);
+private:
+    tvg::Point point(float x, float y) const {
+        return tvg::Point{x * scale_, -y * scale_};  // Y軸反転
     }
 
-    FT_Library ftLib = FontManager::instance().getFTLibrary();
-    if (!ftLib) {
-        throw std::runtime_error("FreeType library not initialized");
-    }
+    float scale_;
+    std::vector<tvg::PathCommand>& commands_;
+    std::vector<tvg::Point>& points_;
+    tvg::Point cur_{0.0f, 0.0f};
+};
 
-    FT_Open_Args args = {};
-    args.flags = FT_OPEN_STREAM;
-    args.stream = stream;
-
-    FT_Error err = FT_Open_Face(ftLib, &args, index, &ftFace_);
-    if (err != 0) {
-        throw std::runtime_error("Failed to open font face (stream): " + name);
-    }
-
-    // ストリーム方式でも minikin/harfbuzz 用にフォントデータを参照可能にする
-    // FT_Face が内部的にストリームを保持するので、テーブルアクセスは可能
-    fontData_ = nullptr;
-    fontDataSize_ = stream->size;
-
-    captureFaceNames(ftFace_, familyName_, styleName_);
-    initVariableAxes(ftFace_, ftLib, axes_, isVariable_,
-                     hasWdthAxis_, wdthMin_, wdthMax_, wdthDefault_);
-}
-
-FontFace::~FontFace() {
-    releaseFace();
-}
-
-void FontFace::releaseFace() {
-    if (ftFace_) {
-        FT_Done_Face(ftFace_);
-        ftFace_ = nullptr;
-    }
-    // ストリームは FT_Done_Face 後に解放
-    if (ftStream_) {
-        free(ftStream_);
-        ftStream_ = nullptr;
-    }
-}
-
-void FontFace::setVariations(const std::vector<minikin::FontVariation>& variations) {
-    if (!ftFace_ || !isVariable_) return;
-
-    // axes_ を更新
-    axes_ = variations;
-
-    // FreeType にバリエーション座標を設定
-    FT_MM_Var* mmVar = nullptr;
-    if (FT_Get_MM_Var(ftFace_, &mmVar) != 0 || !mmVar) return;
-
-    std::vector<FT_Fixed> coords(mmVar->num_axis);
-    // まずデフォルト値で初期化
-    for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
-        coords[i] = mmVar->axis[i].def;
-    }
-    // 指定された軸の値を上書き
-    for (const auto& var : variations) {
-        for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
-            if (mmVar->axis[i].tag == var.axisTag) {
-                coords[i] = static_cast<FT_Fixed>(var.value * 65536.0f);
-                break;
-            }
-        }
-    }
-
-    FT_Set_Var_Design_Coordinates(ftFace_, mmVar->num_axis, coords.data());
-
-    FT_Library ftLib = FontManager::instance().getFTLibrary();
-    FT_Done_MM_Var(ftLib, mmVar);
-}
-
-bool FontFace::getWidthAxisRange(float& minWidth, float& maxWidth) const {
-    if (!hasWdthAxis_) return false;
-    minWidth = wdthMin_;
-    maxWidth = wdthMax_;
-    return true;
-}
-
-void FontFace::applyWidth(float width) const {
-    if (!ftFace_ || !isVariable_) return;
-
-    // 現在の座標を取得して wdth 軸のみ変更
-    FT_MM_Var* mmVar = nullptr;
-    if (FT_Get_MM_Var(ftFace_, &mmVar) != 0 || !mmVar) return;
-
-    std::vector<FT_Fixed> coords(mmVar->num_axis);
-    FT_Get_Var_Design_Coordinates(ftFace_, mmVar->num_axis, coords.data());
-
-    for (FT_UInt i = 0; i < mmVar->num_axis; ++i) {
-        if (mmVar->axis[i].tag == FT_MAKE_TAG('w','d','t','h')) {
-            // 軸の範囲にクランプ
-            float clamped = std::clamp(width,
-                mmVar->axis[i].minimum / 65536.0f,
-                mmVar->axis[i].maximum / 65536.0f);
-            coords[i] = static_cast<FT_Fixed>(clamped * 65536.0f);
-            break;
-        }
-    }
-
-    FT_Set_Var_Design_Coordinates(ftFace_, mmVar->num_axis, coords.data());
-
-    FT_Library ftLib = FontManager::instance().getFTLibrary();
-    FT_Done_MM_Var(ftLib, mmVar);
-}
-
-float FontFace::GetHorizontalAdvance(uint32_t glyphId,
-                                     const minikin::MinikinPaint& paint,
-                                     const minikin::FontFakery& /*fakery*/) const {
-    if (!ftFace_) return 0.0f;
-
-    // fontWidth が 100% 以外の場合、wdth 軸を設定してからグリフをロード
-    float fakeScaleX = 1.0f;
-    if (paint.fontWidth != 100.0f) {
-        if (hasWdthAxis_) {
-            float clampedWidth = std::clamp(paint.fontWidth, wdthMin_, wdthMax_);
-            applyWidth(clampedWidth);
-            fakeScaleX = paint.fontWidth / clampedWidth;
-        } else {
-            fakeScaleX = paint.fontWidth / 100.0f;
-        }
-    }
-
-    FT_Int32 flags;
-    bool hasColor = FT_HAS_COLOR(ftFace_);
-
-    if (hasColor) {
-        flags = FT_LOAD_COLOR | FT_LOAD_DEFAULT;
-    } else {
-        flags = LOAD_FLAG;
-    }
-
-    FT_Error err = loadGlyph(glyphId, paint.size, ftFace_, flags);
-    if (err != 0) {
-        return 0.0f;
-    }
-
-    float advance = FTPosToFloat(ftFace_->glyph->advance.x);
-
-    // カラービットマップフォントはスケーリングが必要
-    if (hasColor && FT_HAS_FIXED_SIZES(ftFace_) && ftFace_->num_fixed_sizes > 0) {
-        float fixedSize = ftFace_->available_sizes[0].height;
-        if (fixedSize > 0) {
-            float scale = paint.size / fixedSize;
-            advance *= scale;
-        }
-    }
-
-    // fontWidth の fake 分をスケール
-    advance *= fakeScaleX;
-
-    return advance;
-}
-
-void FontFace::GetBounds(minikin::MinikinRect* bounds, uint32_t glyphId,
-                         const minikin::MinikinPaint& paint,
-                         const minikin::FontFakery& /*fakery*/) const {
-    if (!ftFace_ || !bounds) return;
-    
-    FT_Error err = loadGlyph(glyphId, paint.size, ftFace_);
-    if (err != 0) {
-        bounds->mLeft = bounds->mTop = bounds->mRight = bounds->mBottom = 0;
-        return;
-    }
-    
-    if (ftFace_->glyph->format == FT_GLYPH_FORMAT_OUTLINE) {
-        FT_BBox bbox;
-        FT_Outline_Get_CBox(&ftFace_->glyph->outline, &bbox);
-        
-        bounds->mLeft = FTPosToFloat(bbox.xMin);
-        bounds->mTop = FTPosToFloat(bbox.yMax);
-        bounds->mRight = FTPosToFloat(bbox.xMax);
-        bounds->mBottom = FTPosToFloat(bbox.yMin);
-    } else {
-        // ビットマップの場合（CBDT等）
-        // ストライクのネイティブ座標なので要求サイズにスケール
-        FT_GlyphSlot slot = ftFace_->glyph;
-        float scale = 1.0f;
-        if (FT_HAS_FIXED_SIZES(ftFace_) && ftFace_->num_fixed_sizes > 0) {
-            float fixedSize = ftFace_->available_sizes[0].height;
-            if (fixedSize > 0) {
-                scale = paint.size / fixedSize;
-            }
-        }
-        bounds->mLeft = static_cast<float>(slot->bitmap_left) * scale;
-        bounds->mTop = static_cast<float>(slot->bitmap_top) * scale;
-        bounds->mRight = bounds->mLeft + slot->bitmap.width * scale;
-        bounds->mBottom = bounds->mTop - slot->bitmap.rows * scale;
-    }
-}
-
-void FontFace::GetFontExtent(minikin::MinikinExtent* extent,
-                             const minikin::MinikinPaint& paint,
-                             const minikin::FontFakery& /*fakery*/) const {
-    if (!ftFace_ || !extent) return;
-    
-    float upem = ftFace_->units_per_EM;
-    if (upem <= 0) upem = 1000;
-    
-    extent->ascent = -static_cast<float>(ftFace_->ascender) * paint.size / upem;
-    extent->descent = -static_cast<float>(ftFace_->descender) * paint.size / upem;
-}
-
-bool FontFace::isColorGlyph(uint32_t /*glyphId*/) const {
-    if (!ftFace_) return false;
-    return FT_HAS_COLOR(ftFace_) != 0;
-}
-
-bool FontFace::getGlyphPath(uint32_t glyphId, float size,
-                            std::vector<tvg::PathCommand>& commands,
-                            std::vector<tvg::Point>& points) const {
-    if (!ftFace_) return false;
-    
-    // カラー絵文字はパス取得不可
-    if (isColorGlyph(glyphId)) {
-        return false;
-    }
-    
-    FT_Error err = loadGlyph(glyphId, size, ftFace_, LOAD_FLAG);
-    if (err != 0) {
-        return false;
-    }
-
-    if (ftFace_->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
-        return false;
-    }
-
-    commands.clear();
-    points.clear();
-
-    // FreeType アウトラインを thorvg パスに変換
-    outlineToPath(&ftFace_->glyph->outline, 1.0f, commands, points);
-    
-    return true;
-}
-
-bool FontFace::getGlyphBitmap(uint32_t glyphId, float size,
-                              GlyphBitmap& bitmap) const {
-    if (!ftFace_) return false;
-
-    bool hasColor = FT_HAS_COLOR(ftFace_);
-
-    // Step 1: FT_LOAD_COLOR のみでロード（RENDER なし）
-    FT_Int32 flags = hasColor
-        ? FT_LOAD_COLOR
-        : FT_LOAD_DEFAULT;
-
-    FT_Error err = loadGlyph(glyphId, size, ftFace_, flags);
-    if (err != 0) {
-        return false;
-    }
-
-    FT_GlyphSlot slot = ftFace_->glyph;
-
-    // Step 2: アウトラインの場合はレンダリング
-    if (slot->format == FT_GLYPH_FORMAT_OUTLINE) {
-        err = FT_Render_Glyph(slot, FT_RENDER_MODE_NORMAL);
-        if (err != 0) {
-            return false;
-        }
-    }
-    
-    FT_Bitmap& ftBitmap = slot->bitmap;
-
-    //------------------------------------------------------------------
-    // COLRv0 レイヤーフォールバック
-    // FreeType が COLRv1 を自動合成できない場合、COLRv0 レイヤーを
-    // 個別レンダリング＋合成して RGBA ビットマップを生成する
-    //------------------------------------------------------------------
-    if (ftBitmap.width == 0 && ftBitmap.rows == 0 && hasColor) {
-        if (renderCOLRv1Glyph(glyphId, size, bitmap)) {
-            return true;
-        }
-        return false;
-    }
-
-    //------------------------------------------------------------------
-    // 通常パス: CBDT / grayscale
-    //------------------------------------------------------------------
-    bitmap.width = ftBitmap.width;
-    bitmap.height = ftBitmap.rows;
-    bitmap.bearingX = slot->bitmap_left;
-    bitmap.bearingY = slot->bitmap_top;
-    // GetHorizontalAdvance と同じ基準でスケール計算
-    if (FT_HAS_FIXED_SIZES(ftFace_) && ftFace_->num_fixed_sizes > 0) {
-        bitmap.strikeHeight = ftFace_->available_sizes[0].height;
-    }
-
-    // ピクセルデータをコピー
-    if (ftBitmap.pixel_mode == FT_PIXEL_MODE_BGRA) {
-        // カラービットマップ (BGRA -> RGBA)
-        bitmap.data.resize(ftBitmap.width * ftBitmap.rows * 4);
-        for (unsigned int y = 0; y < ftBitmap.rows; ++y) {
-            for (unsigned int x = 0; x < ftBitmap.width; ++x) {
-                size_t srcIdx = y * ftBitmap.pitch + x * 4;
-                size_t dstIdx = (y * ftBitmap.width + x) * 4;
-                bitmap.data[dstIdx + 0] = ftBitmap.buffer[srcIdx + 2]; // R
-                bitmap.data[dstIdx + 1] = ftBitmap.buffer[srcIdx + 1]; // G
-                bitmap.data[dstIdx + 2] = ftBitmap.buffer[srcIdx + 0]; // B
-                bitmap.data[dstIdx + 3] = ftBitmap.buffer[srcIdx + 3]; // A
-            }
-        }
-    } else if (ftBitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
-        // グレースケール -> RGBA
-        bitmap.data.resize(ftBitmap.width * ftBitmap.rows * 4);
-        for (unsigned int y = 0; y < ftBitmap.rows; ++y) {
-            for (unsigned int x = 0; x < ftBitmap.width; ++x) {
-                size_t srcIdx = y * ftBitmap.pitch + x;
-                size_t dstIdx = (y * ftBitmap.width + x) * 4;
-                uint8_t alpha = ftBitmap.buffer[srcIdx];
-                bitmap.data[dstIdx + 0] = 255;   // R
-                bitmap.data[dstIdx + 1] = 255;   // G
-                bitmap.data[dstIdx + 2] = 255;   // B
-                bitmap.data[dstIdx + 3] = alpha; // A
-            }
-        }
-    } else {
-        return false;
-    }
-
-    return true;
-}
-
-void FontFace::outlineToPath(FT_Outline* outline, float scale,
-                             std::vector<tvg::PathCommand>& commands,
-                             std::vector<tvg::Point>& points) {
+/**
+ * FreeType アウトラインを thorvg パスに変換（COLRv1 経路専用）
+ */
+void outlineToPath(FT_Outline* outline,
+                   float scale,
+                   std::vector<tvg::PathCommand>& commands,
+                   std::vector<tvg::Point>& points) {
     if (!outline) return;
-    
+
     int contourStart = 0;
-    
+
     for (int c = 0; c < outline->n_contours; ++c) {
         int contourEnd = outline->contours[c];
         bool firstPoint = true;
-        
+
         for (int p = contourStart; p <= contourEnd; ++p) {
             FT_Vector& pt = outline->points[p];
             char tag = outline->tags[p] & 0x03;
-            
+
             float x = FTPosToFloat(pt.x) * scale;
             float y = -FTPosToFloat(pt.y) * scale;  // Y軸反転
-            
+
             if (firstPoint) {
                 commands.push_back(tvg::PathCommand::MoveTo);
                 points.push_back({x, y});
@@ -507,31 +137,31 @@ void FontFace::outlineToPath(FT_Outline* outline, float scale,
                 int nextIdx = (p + 1 > contourEnd) ? contourStart : p + 1;
                 FT_Vector& nextPt = outline->points[nextIdx];
                 char nextTag = outline->tags[nextIdx] & 0x03;
-                
+
                 float nextX = FTPosToFloat(nextPt.x) * scale;
                 float nextY = -FTPosToFloat(nextPt.y) * scale;
-                
+
                 // 次の点もコントロールポイントの場合、中点を終点とする
                 if (nextTag == FT_CURVE_TAG_CONIC) {
                     nextX = (x + nextX) / 2.0f;
                     nextY = (y + nextY) / 2.0f;
                 }
-                
+
                 // 直前の点を取得
                 float prevX = points.back().x;
                 float prevY = points.back().y;
-                
+
                 // 2次ベジェを3次ベジェに変換
                 float cp1x = prevX + (2.0f / 3.0f) * (x - prevX);
                 float cp1y = prevY + (2.0f / 3.0f) * (y - prevY);
                 float cp2x = nextX + (2.0f / 3.0f) * (x - nextX);
                 float cp2y = nextY + (2.0f / 3.0f) * (y - nextY);
-                
+
                 commands.push_back(tvg::PathCommand::CubicTo);
                 points.push_back({cp1x, cp1y});
                 points.push_back({cp2x, cp2y});
                 points.push_back({nextX, nextY});
-                
+
                 // 次の点がオンカーブ点なら、その点は消費済みなのでスキップ
                 // ただし nextIdx がラップアラウンドした場合はスキップしない
                 if (nextTag != FT_CURVE_TAG_CONIC && nextIdx > p) {
@@ -541,29 +171,257 @@ void FontFace::outlineToPath(FT_Outline* outline, float scale,
                 // 3次ベジェ（2つのコントロールポイント）
                 int nextIdx = (p + 1 > contourEnd) ? contourStart : p + 1;
                 int endIdx = (p + 2 > contourEnd) ? contourStart : p + 2;
-                
+
                 FT_Vector& cp2 = outline->points[nextIdx];
                 FT_Vector& endPt = outline->points[endIdx];
-                
+
                 float cp2x = FTPosToFloat(cp2.x) * scale;
                 float cp2y = -FTPosToFloat(cp2.y) * scale;
                 float endX = FTPosToFloat(endPt.x) * scale;
                 float endY = -FTPosToFloat(endPt.y) * scale;
-                
+
                 commands.push_back(tvg::PathCommand::CubicTo);
                 points.push_back({x, y});
                 points.push_back({cp2x, cp2y});
                 points.push_back({endX, endY});
-                
+
                 p += 2;  // 2つ進める
             }
         }
-        
+
         // 輪郭を閉じる
         commands.push_back(tvg::PathCommand::Close);
-        
+
         contourStart = contourEnd + 1;
     }
+}
+
+} // anonymous namespace
+
+// ----------------------------------------------------------------------------
+// FontFace 実装
+// ----------------------------------------------------------------------------
+
+FontFace::FontFace(const std::string& name,
+                   std::shared_ptr<FontBackendFace> face,
+                   int index)
+    : minikin::MinikinFont(sUniqueIdCounter++)
+    , fontName_(name)
+    , fontIndex_(index)
+    , face_(std::move(face))
+{
+    if (!face_) {
+        throw std::runtime_error("Null font backend face for: " + name);
+    }
+
+    familyName_ = face_->familyName();
+    styleName_ = face_->styleName();
+    faceMetrics_ = face_->faceMetrics();
+
+    // COLRv1 走査用（公開されないバックエンドでは nullptr）
+    ftFace_ = static_cast<FT_Face>(face_->nativeFTFace());
+
+    // バリアブルフォント軸
+    const std::vector<FontVarCoord> axes = face_->getAxes();
+    isVariable_ = !axes.empty();
+    axes_.reserve(axes.size());
+    for (const auto& axis : axes) {
+        axes_.emplace_back(static_cast<minikin::AxisTag>(axis.tag), axis.value);
+    }
+    hasWdthAxis_ = face_->getAxisRange(kWdthTag, wdthMin_, wdthDefault_, wdthMax_);
+}
+
+FontFace::~FontFace() {
+    releaseFace();
+}
+
+void FontFace::releaseFace() {
+    ftFace_ = nullptr;
+    face_.reset();
+}
+
+FT_Face FontFace::getFTFace() const {
+    return ftFace_;
+}
+
+const void* FontFace::GetFontData() const {
+    return face_ ? face_->fontData() : nullptr;
+}
+
+size_t FontFace::GetFontSize() const {
+    return face_ ? face_->fontDataSize() : 0;
+}
+
+void FontFace::setVariations(const std::vector<minikin::FontVariation>& variations) {
+    if (!face_ || !isVariable_) return;
+
+    // axes_ を更新
+    axes_ = variations;
+
+    // 未指定の軸は既定値へ戻す（従来の FreeType 実装と同じ挙動）
+    std::vector<FontVarCoord> coords = face_->getAxes();
+    for (const auto& var : variations) {
+        bool found = false;
+        for (auto& c : coords) {
+            if (c.tag == var.axisTag) {
+                c.value = var.value;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            coords.push_back({static_cast<uint32_t>(var.axisTag), var.value});
+        }
+    }
+    face_->setVariations(coords);
+}
+
+bool FontFace::getWidthAxisRange(float& minWidth, float& maxWidth) const {
+    if (!hasWdthAxis_) return false;
+    minWidth = wdthMin_;
+    maxWidth = wdthMax_;
+    return true;
+}
+
+void FontFace::applyWidth(float width) const {
+    if (!face_ || !hasWdthAxis_) return;
+    const float clamped = std::clamp(width, wdthMin_, wdthMax_);
+    face_->setVariations({{kWdthTag, clamped}});
+}
+
+float FontFace::GetHorizontalAdvance(uint32_t glyphId,
+                                     const minikin::MinikinPaint& paint,
+                                     const minikin::FontFakery& /*fakery*/) const {
+    if (!face_) return 0.0f;
+
+    // fontWidth が 100% 以外の場合、wdth 軸を設定してからグリフをロード
+    float fakeScaleX = 1.0f;
+    if (paint.fontWidth != 100.0f) {
+        if (hasWdthAxis_) {
+            float clampedWidth = std::clamp(paint.fontWidth, wdthMin_, wdthMax_);
+            applyWidth(clampedWidth);
+            fakeScaleX = paint.fontWidth / clampedWidth;
+        } else {
+            fakeScaleX = paint.fontWidth / 100.0f;
+        }
+    }
+
+    // レイアウト用なのでヒンティング無し（アドバンスが整数に丸まらないように）
+    FontGlyphMetrics m;
+    if (!face_->getGlyphMetrics(glyphId, paint.size, false, false, true, m)) {
+        return 0.0f;
+    }
+
+    // 固定サイズのカラービットマップフォントのスケーリングはバックエンドが行う
+    return m.advanceX * fakeScaleX;
+}
+
+void FontFace::GetBounds(minikin::MinikinRect* bounds, uint32_t glyphId,
+                         const minikin::MinikinPaint& paint,
+                         const minikin::FontFakery& /*fakery*/) const {
+    if (!face_ || !bounds) return;
+
+    FontGlyphMetrics m;
+    if (!face_->getGlyphMetrics(glyphId, paint.size, false, false, true, m)) {
+        bounds->mLeft = bounds->mTop = bounds->mRight = bounds->mBottom = 0;
+        return;
+    }
+
+    bounds->mLeft = m.bearingX;
+    bounds->mTop = m.bearingY;
+    bounds->mRight = m.bearingX + m.width;
+    bounds->mBottom = m.bearingY - m.height;
+}
+
+void FontFace::GetFontExtent(minikin::MinikinExtent* extent,
+                             const minikin::MinikinPaint& paint,
+                             const minikin::FontFakery& /*fakery*/) const {
+    if (!face_ || !extent) return;
+
+    float upem = faceMetrics_.unitsPerEm;
+    if (upem <= 0) upem = 1000.0f;
+
+    extent->ascent = -faceMetrics_.ascenderUnits * paint.size / upem;
+    extent->descent = -faceMetrics_.descenderUnits * paint.size / upem;
+}
+
+bool FontFace::isColorGlyph(uint32_t /*glyphId*/) const {
+    return face_ && face_->isColorFont();
+}
+
+bool FontFace::getGlyphPath(uint32_t glyphId, float size,
+                            std::vector<tvg::PathCommand>& commands,
+                            std::vector<tvg::Point>& points) const {
+    if (!face_) return false;
+
+    // カラー絵文字はパス取得不可
+    if (isColorGlyph(glyphId)) {
+        return false;
+    }
+
+    float upem = faceMetrics_.unitsPerEm;
+    if (upem <= 0) upem = 1000.0f;
+
+    commands.clear();
+    points.clear();
+
+    // アウトラインはフォントユニットで返るので要求サイズへスケールする
+    TvgPathSink sink(size / upem, commands, points);
+    return face_->getGlyphOutline(glyphId, false, false, sink);
+}
+
+bool FontFace::getGlyphBitmap(uint32_t glyphId, float size,
+                              GlyphBitmap& bitmap) const {
+    if (!face_) return false;
+
+    const bool hasColor = face_->isColorFont();
+
+    FontGlyphBitmapView view;
+    if (!face_->getGlyphBitmap(glyphId, size, hasColor, false, false, view)) {
+        // FreeType が合成できない COLRv1 はペイントグラフを自前走査する
+        if (hasColor) {
+            return renderCOLRv1Glyph(glyphId, size, bitmap);
+        }
+        return false;
+    }
+
+    bitmap.width = view.width;
+    bitmap.height = view.rows;
+    bitmap.bearingX = view.left;
+    bitmap.bearingY = view.top;
+    // バックエンドが要求サイズへスケール済みなので、描画側での再スケールは不要
+    bitmap.strikeHeight = 0.0f;
+
+    const size_t pixels = static_cast<size_t>(view.width) * view.rows;
+    bitmap.data.resize(pixels * 4);
+
+    if (view.format == FontBitmapFormat::BGRA) {
+        // カラービットマップ (BGRA -> RGBA)
+        for (int y = 0; y < view.rows; ++y) {
+            const uint8_t* src = view.buffer + static_cast<ptrdiff_t>(view.pitch) * y;
+            uint8_t* dst = bitmap.data.data() + static_cast<size_t>(y) * view.width * 4;
+            for (int x = 0; x < view.width; ++x) {
+                dst[x * 4 + 0] = src[x * 4 + 2];  // R
+                dst[x * 4 + 1] = src[x * 4 + 1];  // G
+                dst[x * 4 + 2] = src[x * 4 + 0];  // B
+                dst[x * 4 + 3] = src[x * 4 + 3];  // A
+            }
+        }
+    } else {
+        // グレースケール -> RGBA（白 + カバレッジ）
+        for (int y = 0; y < view.rows; ++y) {
+            const uint8_t* src = view.buffer + static_cast<ptrdiff_t>(view.pitch) * y;
+            uint8_t* dst = bitmap.data.data() + static_cast<size_t>(y) * view.width * 4;
+            for (int x = 0; x < view.width; ++x) {
+                dst[x * 4 + 0] = 255;
+                dst[x * 4 + 1] = 255;
+                dst[x * 4 + 2] = 255;
+                dst[x * 4 + 3] = src[x];
+            }
+        }
+    }
+
+    return true;
 }
 
 //==============================================================================

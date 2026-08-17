@@ -6,6 +6,7 @@
 
 #include "richtext/FontManager.hpp"
 #include "richtext/FontFace.hpp"
+#include "richtext/GlyphwareBackend.hpp"
 
 #include <minikin/Font.h>
 #include <minikin/FontFamily.h>
@@ -27,8 +28,7 @@ FontManager& FontManager::instance() {
 }
 
 FontManager::FontManager()
-    : ftLibrary_(nullptr)
-    , initialized_(false)
+    : initialized_(false)
 {
 }
 
@@ -40,13 +40,23 @@ bool FontManager::initialize() {
     if (initialized_) {
         return true;
     }
-    
-    FT_Error err = FT_Init_FreeType(&ftLibrary_);
-    if (err != 0) {
-        fprintf(stderr, "Failed to initialize FreeType library\n");
+
+    // バックエンド未注入なら既定（glyphware）を用意する
+    if (!backend_) {
+#ifdef RICHTEXT_USE_GLYPHWARE
+        // ローダーはここで束ねずに呼び出し時に引くこと。
+        // initialize() の後に setFontDataLoader() されても効くようにするため。
+        backend_ = std::make_shared<GlyphwareFontBackend>(
+            [](const std::string& name) -> FontDataBuffer {
+                return FontManager::instance().loadFontBytes(name);
+            });
+#else
+        fprintf(stderr, "No font backend: build with RICHTEXT_USE_GLYPHWARE "
+                        "or call setFontBackend() before initialize()\n");
         return false;
+#endif
     }
-    
+
     initialized_ = true;
     return true;
 }
@@ -57,44 +67,33 @@ void FontManager::terminate() {
     fonts_.clear();
     localeIds_.clear();
 
-    // ローダーもクリア
+    // ローダー / バックエンドもクリア
     dataLoader_ = nullptr;
-    streamLoader_ = nullptr;
-
-    if (ftLibrary_) {
-        FT_Done_FreeType(ftLibrary_);
-        ftLibrary_ = nullptr;
-    }
+    backend_.reset();
 
     initialized_ = false;
+}
+
+void FontManager::setFontBackend(std::shared_ptr<FontBackend> backend) {
+    backend_ = std::move(backend);
 }
 
 void FontManager::setFontDataLoader(FontDataLoader loader) {
     dataLoader_ = std::move(loader);
 }
 
-void FontManager::setFontStreamLoader(FontStreamLoader loader) {
-    streamLoader_ = std::move(loader);
+FontDataBuffer FontManager::loadFontBytes(const std::string& name) const {
+    if (!dataLoader_) return nullptr;
+    auto data = dataLoader_(name);
+    if (!data || data->empty()) return nullptr;
+    return data;
 }
 
 std::shared_ptr<FontFace> FontManager::loadFontFace(const std::string& fileName, int index) {
-    // バッファローダー優先
-    if (dataLoader_) {
-        auto data = dataLoader_(fileName);
-        if (data && !data->empty()) {
-            return std::make_shared<FontFace>(fileName, std::move(data), index);
-        }
-    }
-
-    // ストリームローダーにフォールバック
-    if (streamLoader_) {
-        FT_Stream stream = streamLoader_(fileName);
-        if (stream) {
-            return std::make_shared<FontFace>(fileName, stream, index);
-        }
-    }
-
-    throw std::runtime_error("No font loader registered, or loader failed for: " + fileName);
+    if (!backend_) return nullptr;
+    auto face = backend_->openFace(fileName, index);
+    if (!face) return nullptr;
+    return std::make_shared<FontFace>(fileName, std::move(face), index);
 }
 
 bool FontManager::registerFont(const std::string& fileName,
@@ -111,6 +110,10 @@ bool FontManager::registerFont(const std::string& fileName,
 
     try {
         auto fontFace = loadFontFace(fileName, index);
+        if (!fontFace) {
+            fprintf(stderr, "Failed to open font '%s'\n", fileName.c_str());
+            return false;
+        }
         FontEntry entry;
         entry.face = fontFace;
         entry.weight = 400;
@@ -136,6 +139,10 @@ bool FontManager::registerVariableFont(const std::string& fileName,
 
     try {
         auto fontFace = loadFontFace(fileName, index);
+        if (!fontFace) {
+            fprintf(stderr, "Failed to open font '%s'\n", fileName.c_str());
+            return false;
+        }
         if (!fontFace->isVariableFont()) {
             fprintf(stderr, "Font '%s' is not a variable font\n", fileName.c_str());
             return false;

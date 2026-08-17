@@ -1,12 +1,12 @@
 /**
  * glyphware_poc.cpp
  *
- * 検証用 PoC: glyphware (d:/work/kirikiri/glyphware) を FreeType の代わりに
- * minikin のフォントバックエンドとして使えるかを確認する。
+ * 検証用 PoC / スモークテスト: glyphware を minikin のフォントバックエンドと
+ * して使う経路を確認する。
  *
  * 1. glyphware::Face を包む minikin::MinikinFont 実装 (GwMinikinFont) を作り、
  *    minikin::FontCollection を構築してレイアウトできるか
- * 2. 既存の richtext::FontFace (FreeType 直叩き) と同じテキストをレイアウトし、
+ * 2. 同じテキストを richtext::FontFace 経由 (FontBackend 実装) でもレイアウトし、
  *    グリフID / アドバンス / エクステントが一致するか
  * 3. グリフアウトラインが一致するか (font unit スケール変換込み)
  * 4. glyphware のアウトラインから thorvg で実際に描画できるか (BMP 出力)
@@ -25,6 +25,10 @@
 #include <vector>
 
 #include <glyphware/glyphware.h>
+
+// ヒンティング差の切り分けで FreeType を直接叩くため
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 #include <minikin/Font.h>
 #include <minikin/FontCollection.h>
@@ -91,7 +95,8 @@ public:
         minikin::FontFakery fk = fakery;
         face_->setPixelSize(toPixels(paint.size));
         glyphware::GlyphMetrics m;
-        if (!face_->glyphMetrics(glyphId, m, fk.isFakeBold(), fk.isFakeItalic())) {
+        if (!face_->glyphMetrics(glyphId, m, fk.isFakeBold(), fk.isFakeItalic(),
+                                 glyphware::Hinting::Unhinted)) {
             return 0.0f;
         }
         return m.advanceX;
@@ -104,7 +109,8 @@ public:
         minikin::FontFakery fk = fakery;
         face_->setPixelSize(toPixels(paint.size));
         glyphware::GlyphMetrics m;
-        if (!face_->glyphMetrics(glyphId, m, fk.isFakeBold(), fk.isFakeItalic())) {
+        if (!face_->glyphMetrics(glyphId, m, fk.isFakeBold(), fk.isFakeItalic(),
+                                 glyphware::Hinting::Unhinted)) {
             bounds->mLeft = bounds->mTop = bounds->mRight = bounds->mBottom = 0;
             return;
         }
@@ -121,10 +127,9 @@ public:
         face_->setPixelSize(toPixels(paint.size));
         const glyphware::LineMetrics lm = face_->lineMetrics();
         const float upem = lm.unitsPerEm > 0 ? lm.unitsPerEm : 1000.0f;
-        // ascent は font unit から直接計算できる (richtext::FontFace と同じ式)
+        // font unit から直接計算する (richtext::FontFace と同じ式)
         extent->ascent = -lm.ascenderUnits * paint.size / upem;
-        // descent は font unit の値が LineMetrics に無いのでスケール済み値を使う
-        extent->descent = lm.descent;
+        extent->descent = -lm.descenderUnits * paint.size / upem;
     }
 
     const void* GetFontData() const override { return blob_->data(); }
@@ -317,10 +322,12 @@ int main() {
            kJa, gwJa->descriptor().family.c_str(),
            gwJa->descriptor().subfamily.c_str(), gwJa->lineMetrics().unitsPerEm);
 
-    // Registry は Face を返すが blob を返さないので、minikin の GetFontData 用に
-    // ローダーから同じ key でもう一度取得する (= glyphware 側の API 不足点)
-    auto blobLatin = loader->load(kLatin);
-    auto blobJa    = loader->load(kJa);
+    // minikin の GetFontData 用の生バイト列は Face::blob() で取れる
+    // (glyphware に追加した API。以前はローダーから二重ロードが必要だった)
+    auto blobLatin = gwLatin->blob();
+    auto blobJa    = gwJa->blob();
+    printf("[glyphware] Face::blob() 経由でフォントバイト列取得: %zu / %zu bytes\n\n",
+           blobLatin->size(), blobJa->size());
 
     auto gwFontLatin = std::make_shared<GwMinikinFont>(sUniqueId++, gwLatin, blobLatin, 0);
     auto gwFontJa    = std::make_shared<GwMinikinFont>(sUniqueId++, gwJa, blobJa, 0);
@@ -337,7 +344,7 @@ int main() {
     printf("[glyphware] minikin::FontCollection 構築 OK\n");
 
     //--------------------------------------------------------------------------
-    // B) 既存 FreeType 経路 (richtext::FontFace) を比較対象として構築
+    // B) richtext::FontFace 経路 (FontBackend 経由) を比較対象として構築
     //--------------------------------------------------------------------------
     auto& fm = richtext::FontManager::instance();
     fm.initialize();
@@ -356,7 +363,7 @@ int main() {
         fprintf(stderr, "richtext: collection 構築失敗\n");
         return 1;
     }
-    printf("[freetype ] minikin::FontCollection 構築 OK\n\n");
+    printf("[richtext ] minikin::FontCollection 構築 OK\n\n");
 
     //--------------------------------------------------------------------------
     // C) 同一テキストをレイアウトして比較
@@ -379,9 +386,9 @@ int main() {
     minikin::Layout ftLayout = layoutWith(ftCollection);
 
     printf("--- レイアウト比較 (\"Hello 日本語 World!\" / %.0fpx) ---\n", fontSize);
-    printf("glyph 数    : glyphware=%zu  freetype=%zu\n",
+    printf("glyph 数    : glyphware=%zu  richtext=%zu\n",
            gwLayout.nGlyphs(), ftLayout.nGlyphs());
-    printf("総アドバンス: glyphware=%.3f  freetype=%.3f  (差 %.3f)\n\n",
+    printf("総アドバンス: glyphware=%.3f  richtext=%.3f  (差 %.3f)\n\n",
            gwLayout.getAdvance(), ftLayout.getAdvance(),
            gwLayout.getAdvance() - ftLayout.getAdvance());
 
@@ -396,7 +403,7 @@ int main() {
         if (g1 != g2) ++gidMismatch;
         maxXDiff = std::max(maxXDiff, std::fabs(x1 - x2));
         if (i < 8) {
-            printf("  [%2zu] gid gw=%-5u ft=%-5u   x gw=%8.3f ft=%8.3f  diff=%+.3f\n",
+            printf("  [%2zu] gid gw=%-5u rt=%-5u   x gw=%8.3f rt=%8.3f  diff=%+.3f\n",
                    i, g1, g2, x1, x2, x1 - x2);
         }
     }
@@ -413,7 +420,7 @@ int main() {
         if (gwLayout.nGlyphs() > 0) gwLayout.getFont(0)->GetFontExtent(&e1, p1, fk);
         if (ftLayout.nGlyphs() > 0) ftLayout.getFont(0)->GetFontExtent(&e2, p2, fk);
         printf("FontExtent  : glyphware ascent=%.3f descent=%.3f\n", e1.ascent, e1.descent);
-        printf("              freetype  ascent=%.3f descent=%.3f\n\n", e2.ascent, e2.descent);
+        printf("              richtext  ascent=%.3f descent=%.3f\n\n", e2.ascent, e2.descent);
     }
 
     //--------------------------------------------------------------------------
@@ -440,13 +447,13 @@ int main() {
         std::vector<tvg::Point> ftPts;
         const bool ftOk = ftFace && ftFace->getGlyphPath(gid, fontSize, ftCmds, ftPts);
 
-        printf("  %s gid=%u  glyphware:%s(cmd=%zu pt=%zu)  freetype:%s(cmd=%zu pt=%zu)\n",
+        printf("  %s gid=%u  glyphware:%s(cmd=%zu pt=%zu)  richtext:%s(cmd=%zu pt=%zu)\n",
                s.label, gid, gwOk ? "OK" : "NG", gwCmds.size(), gwPts.size(),
                ftOk ? "OK" : "NG", ftCmds.size(), ftPts.size());
         if (gwOk && ftOk) {
             const Bbox b1 = bboxOf(gwPts);
             const Bbox b2 = bboxOf(ftPts);
-            printf("      bbox gw=(%.2f,%.2f)-(%.2f,%.2f)  ft=(%.2f,%.2f)-(%.2f,%.2f)\n",
+            printf("      bbox gw=(%.2f,%.2f)-(%.2f,%.2f)  rt=(%.2f,%.2f)-(%.2f,%.2f)\n",
                    b1.minX, b1.minY, b1.maxX, b1.maxY,
                    b2.minX, b2.minY, b2.maxX, b2.maxY);
         }
@@ -482,6 +489,43 @@ int main() {
     printf("\n");
 
     //--------------------------------------------------------------------------
+    // D-3) バリアブルフォント軸 (glyphware に追加した setVariations)
+    //--------------------------------------------------------------------------
+    printf("--- バリアブルフォント軸 ---\n");
+    {
+        const int idVf = registry.registerKey("NotoSans-VariableFont.ttf");
+        auto vf = registry.face(idVf);
+        if (!vf) {
+            printf("  NotoSans-VariableFont.ttf: open NG\n");
+        } else {
+            constexpr uint32_t kWght = 0x77676874; // 'wght'
+            constexpr uint32_t kWdth = 0x77647468; // 'wdth'
+            float lo = 0, def = 0, hi = 0;
+            if (vf->axisRange(kWght, lo, def, hi))
+                printf("  wght 軸: %.0f..%.0f (既定 %.0f)\n", lo, hi, def);
+            if (vf->axisRange(kWdth, lo, def, hi))
+                printf("  wdth 軸: %.1f..%.1f (既定 %.1f)\n", lo, hi, def);
+
+            vf->setPixelSize(static_cast<int>(fontSize + 0.5f));
+            const uint32_t gid = vf->glyphIndex(U'H');
+            for (float w : {400.0f, 700.0f, 900.0f}) {
+                vf->setVariations({{kWght, w}});
+                glyphware::GlyphMetrics m{};
+                vf->glyphMetrics(gid, m, false, false, glyphware::Hinting::Unhinted);
+                printf("  wght=%3.0f -> 'H' advance=%.3f  width=%.3f\n", w, m.advanceX, m.width);
+            }
+            auto cur = vf->variations();
+            printf("  variations() = %zu 軸", cur.size());
+            for (const auto& c : cur) {
+                printf(" [%c%c%c%c=%.1f]", (c.tag >> 24) & 0xFF, (c.tag >> 16) & 0xFF,
+                       (c.tag >> 8) & 0xFF, c.tag & 0xFF, c.value);
+            }
+            printf("\n");
+        }
+    }
+    printf("\n");
+
+    //--------------------------------------------------------------------------
     // E) カラー絵文字ビットマップ比較 (CBDT / COLRv1)
     //--------------------------------------------------------------------------
     printf("--- カラーグリフ比較 ---\n");
@@ -504,9 +548,33 @@ int main() {
         richtext::GlyphBitmap ftBmp;
         const bool ftOk = ftFace && ftFace->getGlyphBitmap(gid, fontSize, ftBmp);
 
+        // アドバンス比較（旧 FreeType 実装の式 vs glyphware）
+        {
+            glyphware::GlyphMetrics mh{}, mu{};
+            gwFace->glyphMetrics(gid, mh, false, false, glyphware::Hinting::Hinted);
+            gwFace->glyphMetrics(gid, mu, false, false, glyphware::Hinting::Unhinted);
+            float oldAdv = 0.0f;
+            auto ftFaceForEmoji = fm.getFont(e.regName);
+            if (ftFaceForEmoji) {
+                if (FT_Face ft = ftFaceForEmoji->getFTFace()) {
+                    if (FT_HAS_FIXED_SIZES(ft)) FT_Select_Size(ft, 0);
+                    else FT_Set_Pixel_Sizes(ft, 0, static_cast<FT_UInt>(fontSize + 0.5f));
+                    if (FT_Load_Glyph(ft, gid, FT_LOAD_COLOR | FT_LOAD_DEFAULT) == 0) {
+                        oldAdv = ft->glyph->advance.x / 64.0f;
+                        if (FT_HAS_FIXED_SIZES(ft) && ft->num_fixed_sizes > 0) {
+                            float fixedSize = static_cast<float>(ft->available_sizes[0].height);
+                            if (fixedSize > 0) oldAdv *= fontSize / fixedSize;
+                        }
+                    }
+                }
+            }
+            printf("      advance: 旧FreeType式=%.3f  glyphware(hinted)=%.3f  (unhinted)=%.3f\n",
+                   oldAdv, mh.advanceX, mu.advanceX);
+        }
+
         const char* fmt = gwBmp.format == glyphware::BitmapFormat::BGRA ? "BGRA"
                         : gwBmp.format == glyphware::BitmapFormat::Mono ? "Mono" : "Gray";
-        printf("  %-20s (%-6s) gid=%-5u glyphware:%s %dx%d fmt=%s / freetype:%s %dx%d\n",
+        printf("  %-20s (%-6s) gid=%-5u glyphware:%s %dx%d fmt=%s / richtext:%s %dx%d\n",
                e.file, e.kind, gid,
                gwOk ? "OK" : "NG", gwBmp.width, gwBmp.rows, gwOk ? fmt : "-",
                ftOk ? "OK" : "NG", ftBmp.width, ftBmp.height);
