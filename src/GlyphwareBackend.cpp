@@ -157,7 +157,50 @@ public:
         return face_->axisRange(tag, minValue, defaultValue, maxValue);
     }
 
-    void* nativeFTFace() const override { return face_->ft(); }
+    bool getColorLayers(uint32_t glyphId, float pixelSize,
+                        std::vector<FontColorLayer>& out,
+                        FontColorGlyphBox* box) override {
+        if (!face_->setPixelSize(toPixelSize(pixelSize))) return false;
+        std::vector<glyphware::ColorLayer> layers;
+        glyphware::ColorGlyphBox gwBox;
+        if (!face_->colorLayers(glyphId, layers, box ? &gwBox : nullptr)) return false;
+
+        out.clear();
+        out.reserve(layers.size());
+        for (const auto& l : layers) {
+            FontColorLayer dst;
+            dst.glyphId = l.gid;
+            for (int i = 0; i < 6; ++i) dst.transform[i] = l.transform[i];
+            dst.paint.kind = l.paint.kind == glyphware::PaintKind::LinearGradient
+                                 ? FontPaintKind::LinearGradient
+                             : l.paint.kind == glyphware::PaintKind::RadialGradient
+                                 ? FontPaintKind::RadialGradient
+                                 : FontPaintKind::Solid;
+            dst.paint.r = l.paint.r;
+            dst.paint.g = l.paint.g;
+            dst.paint.b = l.paint.b;
+            dst.paint.a = l.paint.a;
+            dst.paint.x0 = l.paint.x0;
+            dst.paint.y0 = l.paint.y0;
+            dst.paint.x1 = l.paint.x1;
+            dst.paint.y1 = l.paint.y1;
+            dst.paint.r0 = l.paint.r0;
+            dst.paint.r1 = l.paint.r1;
+            dst.paint.stops.reserve(l.paint.stops.size());
+            for (const auto& s : l.paint.stops) {
+                dst.paint.stops.push_back({s.offset, s.r, s.g, s.b, s.a});
+            }
+            out.push_back(std::move(dst));
+        }
+        if (box) {
+            box->xMin = gwBox.xMin;
+            box->yMin = gwBox.yMin;
+            box->xMax = gwBox.xMax;
+            box->yMax = gwBox.yMax;
+            box->valid = gwBox.valid;
+        }
+        return true;
+    }
 
 private:
     static void assign(const glyphware::GlyphMetrics& src, FontGlyphMetrics& dst) {

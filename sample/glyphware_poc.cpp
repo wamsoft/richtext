@@ -466,8 +466,8 @@ int main() {
     printf("--- アドバンス差の原因切り分け ('H'/'e'/'l' @32px) ---\n");
     printf("  %-5s %-12s %-16s %-16s\n", "gid", "glyphware", "FT_LOAD_DEFAULT", "FT_LOAD_NO_HINTING");
     {
-        auto ftFace = fm.getFont("latin");
-        FT_Face ft = ftFace ? ftFace->getFTFace() : nullptr;
+        // FreeType 直叩きは glyphware::Face::ft() から借りる
+        FT_Face ft = gwLatin->ft();
         const uint32_t gids[] = {43, 72, 79};
         for (uint32_t gid : gids) {
             gwLatin->setPixelSize(static_cast<int>(fontSize + 0.5f));
@@ -554,9 +554,8 @@ int main() {
             gwFace->glyphMetrics(gid, mh, false, false, glyphware::Hinting::Hinted);
             gwFace->glyphMetrics(gid, mu, false, false, glyphware::Hinting::Unhinted);
             float oldAdv = 0.0f;
-            auto ftFaceForEmoji = fm.getFont(e.regName);
-            if (ftFaceForEmoji) {
-                if (FT_Face ft = ftFaceForEmoji->getFTFace()) {
+            {
+                if (FT_Face ft = gwFace->ft()) {
                     if (FT_HAS_FIXED_SIZES(ft)) FT_Select_Size(ft, 0);
                     else FT_Set_Pixel_Sizes(ft, 0, static_cast<FT_UInt>(fontSize + 0.5f));
                     if (FT_Load_Glyph(ft, gid, FT_LOAD_COLOR | FT_LOAD_DEFAULT) == 0) {

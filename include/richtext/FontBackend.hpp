@@ -97,6 +97,45 @@ struct FontVarCoord {
 };
 
 /**
+ * カラーグリフ（COLR v0/v1）のレイヤー
+ *
+ * カラー絵文字のうち、CBDT/sbix のようなビットマップではなくベクターで
+ * 定義されているもの（COLR）は、「アウトライン + 塗り」のレイヤー列に
+ * 展開して自前のラスタライザで描ける。展開はバックエンドが行う。
+ *
+ * 座標系は FreeType 準拠の y-up。アウトラインはフォントユニット、transform と
+ * グラデーション座標は**現在のピクセルサイズ**（transform がフォントユニット→
+ * ピクセルのスケールを含む）。
+ */
+struct FontColorStop {
+    float offset = 0.0f;
+    uint8_t r = 0, g = 0, b = 0, a = 255;
+};
+
+enum class FontPaintKind { Solid, LinearGradient, RadialGradient };
+
+struct FontColorPaint {
+    FontPaintKind kind = FontPaintKind::Solid;
+    uint8_t r = 0, g = 0, b = 0, a = 255;
+    float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+    float r0 = 0.0f, r1 = 0.0f;
+    std::vector<FontColorStop> stops;
+};
+
+/// transform は行優先 2x3: {xx, xy, dx, yx, yy, dy}
+struct FontColorLayer {
+    uint32_t glyphId = 0;
+    float transform[6] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+    FontColorPaint paint;
+};
+
+/// カラーグリフのクリップボックス（ピクセル、y-up）
+struct FontColorGlyphBox {
+    float xMin = 0.0f, yMin = 0.0f, xMax = 0.0f, yMax = 0.0f;
+    bool valid = false;
+};
+
+/**
  * 1 フォントフェイス
  *
  * ピクセルサイズは face の状態なので、グリフ取得系はいずれも pixelSize を
@@ -170,15 +209,17 @@ public:
                               float& maxValue) const = 0;
 
     /**
-     * FreeType の FT_Face（`FT_Face` 型、未対応バックエンドでは nullptr）
+     * カラーグリフ（COLR v0/v1）を描画レイヤー列に展開する
      *
-     * COLRv1 のペイントグラフ走査だけは FreeType の FT_COLR API に直接依存
-     * するため、暫定的にこの逃げ道を使う。ホスト注入バックエンドで nullptr
-     * が返る場合、richtext は COLRv1 合成を諦めて素のビットマップにフォール
-     * バックする。
-     * TODO: glyphware 側にペイントグラフ走査 API を足してこれを廃止する
+     * @param pixelSize transform / box のスケール基準
+     * @param out 背面から前面の順のレイヤー列
+     * @param box グリフのクリップボックス（不要なら nullptr）
+     * @return ペイントグラフを持たないグリフでは false
+     *         （CBDT/sbix はビットマップなので getGlyphBitmap を使う）
      */
-    virtual void* nativeFTFace() const { return nullptr; }
+    virtual bool getColorLayers(uint32_t glyphId, float pixelSize,
+                                std::vector<FontColorLayer>& out,
+                                FontColorGlyphBox* box) = 0;
 };
 
 /**

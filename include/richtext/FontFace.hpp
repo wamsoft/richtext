@@ -14,10 +14,6 @@
 
 #include "richtext/FontBackend.hpp"
 
-// FreeType の不透明ハンドル（COLRv1 走査でのみ使う。FreeType ヘッダは
-// FontFace.cpp 内でのみ必要）
-typedef struct FT_FaceRec_* FT_Face;
-
 namespace richtext {
 
 /**
@@ -123,11 +119,6 @@ public:
     const std::shared_ptr<FontBackendFace>& getBackendFace() const { return face_; }
 
     /**
-     * FT_Face の取得（COLRv1 走査用。バックエンドが公開しない場合 nullptr）
-     */
-    FT_Face getFTFace() const;
-
-    /**
      * バリアブルフォントかどうか
      */
     bool isVariableFont() const { return isVariable_; }
@@ -205,10 +196,6 @@ private:
     std::shared_ptr<FontBackendFace> face_;
     FontFaceMetrics faceMetrics_;
 
-    // COLRv1 走査用にバックエンドから借りた FT_Face（所有しない。
-    // ホスト注入バックエンド等、公開されない場合は nullptr）
-    FT_Face ftFace_ = nullptr;
-
     std::vector<minikin::FontVariation> axes_;
     bool isVariable_ = false;
     bool hasWdthAxis_ = false;
@@ -217,9 +204,8 @@ private:
     float wdthDefault_ = 100.0f;
 
     /**
-     * COLRv1 ペイントグラフを走査して RGBA ビットマップを生成
-     * （FreeType の FT_COLR API に直接依存するため、バックエンドが FT_Face を
-     *   公開している場合のみ動作する）
+     * COLR（v0/v1）カラーグリフをレイヤー合成して RGBA ビットマップを生成
+     * （ペイントグラフの展開はバックエンドが行う）
      */
     bool renderCOLRv1Glyph(uint32_t glyphId, float size,
                            GlyphBitmap& bitmap) const;
