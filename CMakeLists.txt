@@ -93,5 +93,31 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     add_executable(debug_bidi sample/debug_bidi.cpp)
     target_link_libraries(debug_bidi PRIVATE richtext_lib)
+
+    #--------------------------------------------------------------------------
+    # glyphware 統合 PoC（検証用・既定 OFF）
+    #   cmake --preset x64-windows -DRICHTEXT_GLYPHWARE_POC=ON \
+    #         -DGLYPHWARE_DIR=d:/work/kirikiri/glyphware
+    #--------------------------------------------------------------------------
+    option(RICHTEXT_GLYPHWARE_POC "Build the glyphware-backed MinikinFont PoC" OFF)
+    set(GLYPHWARE_DIR "" CACHE PATH "Path to the glyphware source tree")
+
+    if(RICHTEXT_GLYPHWARE_POC)
+        if(NOT EXISTS "${GLYPHWARE_DIR}/CMakeLists.txt")
+            message(FATAL_ERROR "GLYPHWARE_DIR does not point to a glyphware tree: ${GLYPHWARE_DIR}")
+        endif()
+        # glyphware は harfbuzz::harfbuzz を要求するが、minikin の ext/harfbuzz が
+        # 作るのは bare `harfbuzz` と `HarfBuzz::HarfBuzz` なのでエイリアスを補う
+        # （thorvg 側も同じ回避をしている）
+        if(TARGET harfbuzz AND NOT TARGET harfbuzz::harfbuzz)
+            add_library(harfbuzz::harfbuzz ALIAS harfbuzz)
+        endif()
+        set(GLYPHWARE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(GLYPHWARE_INSTALL OFF CACHE BOOL "" FORCE)
+        add_subdirectory(${GLYPHWARE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/glyphware)
+
+        add_executable(glyphware_poc sample/glyphware_poc.cpp)
+        target_link_libraries(glyphware_poc PRIVATE richtext_lib glyphware)
+    endif()
 endif()
 
