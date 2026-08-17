@@ -30,7 +30,7 @@ struct GlyphBitmap {
  *
  * FontBackend（既定は glyphware、あるいはホスト注入のフォントエンジン）と
  * minikin の橋渡しを行う。minikin::MinikinFont を継承し、グリフメトリクスの
- * 取得を提供。また、thorvg 用のパスデータ取得機能も提供。
+ * 取得を提供。
  */
 class FontFace : public minikin::MinikinFont {
 public:

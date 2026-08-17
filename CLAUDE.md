@@ -75,10 +75,15 @@ make build BUILD_TYPE=Debug            # デバッグビルド
 
 ベクターの塗り／縁取りは `FontBackendFace::getGlyphMask()` が返す 8bit
 カバレッジマスクを `RenderTarget` へ合成して行う（`src/Raster.cpp`）。
+外部のベクターグラフィックスエンジンには依存しない。
 サイズ・斜体シアー・幅スケール・サブピクセル位置・上下反転・ユーザ変換は
 1 つのアフィン行列に畳み込んでアウトラインに焼き込むため、後段でのスケール
 による劣化やずれが無い。マスクは変形の 2x2 成分と 1/4px のサブピクセル位相を
 キーにキャッシュされる。
+
+将来ベクターエンジン（thorvg 等）を使いたくなった場合の差し替え口は
+`GlyphRenderer::blendGlyph()` の 1 箇所。手順と注意点は `設計.md` の
+「6.1 描画バックエンドの差し替え」に書いてある。
 
 ### データフロー
 
@@ -92,7 +97,6 @@ make build BUILD_TYPE=Debug            # デバッグビルド
 ### 外部ライブラリ
 
 - `ext/minikin` — テキストレイアウト・行分割（ICU + harfbuzz を内包、git submodule）
-- `ext/thorvg` — **現在は未使用**（描画は自前のマスク合成に移行。将来 thorvg の機能が必要になったときのために submodule は残置）
 - glyphware — 統一フォントエンジン（FreeType + HarfBuzz、`GLYPHWARE_DIR` で外部ツリーを指定）。
   吉里吉里本体・thorvg gw ローダーと共通のフォント実体を扱うためのライブラリ
 - FreeType / zlib / libpng — vcpkg でインストール

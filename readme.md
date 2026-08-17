@@ -2,7 +2,7 @@
 
 多言語・装飾対応のリッチテキストレンダリングライブラリ。
 
-minikin によるテキストレイアウト、FreeType によるグリフパス化、thorvg によるベクター描画を組み合わせて、高品質なテキスト描画を実現する。
+minikin によるテキストレイアウト、glyphware（FreeType）によるグリフのラスタライズ、自前のマスク合成による描画を組み合わせて、高品質なテキスト描画を実現する。
 
 ## 主要機能
 
@@ -52,8 +52,8 @@ build/x64-windows/Release/sample_render.exe
 | ライブラリ | ライセンス | 管理方法 |
 |-----------|-----------|---------|
 | [minikin](ext/minikin/) | Apache License 2.0 | git submodule |
-| [thorvg](ext/thorvg/) | MIT License | git submodule |
-| [FreeType](https://freetype.org/) | FreeType License (BSD-like) | vcpkg |
+| [glyphware](https://github.com/wamsoft/glyphware) | — | 外部ツリー（`GLYPHWARE_DIR`） |
+| [FreeType](https://freetype.org/) | FreeType License (BSD-like) | vcpkg（glyphware 経由でも使用） |
 | [HarfBuzz](https://harfbuzz.github.io/) | MIT License | minikin に内包 |
 | [ICU](https://icu.unicode.org/) | Unicode License | minikin に内包 |
 | [zlib](https://zlib.net/) | zlib License | vcpkg |

@@ -26,7 +26,7 @@ if(NOT TARGET glyphware AND GLYPHWARE_DIR)
     endif()
     # glyphware は harfbuzz::harfbuzz を要求するが、minikin の ext/harfbuzz が
     # 作るのは bare `harfbuzz` と `HarfBuzz::HarfBuzz` なのでエイリアスを補う
-    # （thorvg 側も同じ回避をしている）
+    # （吉里吉里本体の thorvg フォークも同じ回避をしている）
     if(TARGET harfbuzz AND NOT TARGET harfbuzz::harfbuzz)
         add_library(harfbuzz::harfbuzz ALIAS harfbuzz)
     endif()
@@ -64,7 +64,7 @@ target_include_directories(richtext_lib PUBLIC
 )
 target_link_libraries(richtext_lib PUBLIC minikin)
 
-# windows.h の min/max マクロ避け（従来は thorvg.h 経由で定義されていた）
+# windows.h の min/max マクロ避け
 if(MSVC)
     target_compile_definitions(richtext_lib PUBLIC NOMINMAX)
 endif()
