@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>  // std::memcpy (MSVC は他ヘッダ経由で見えるが GCC/libstdc++ では明示が必要)
 
 namespace richtext {
 
