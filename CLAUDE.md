@@ -43,6 +43,7 @@ make build BUILD_TYPE=Debug            # デバッグビルド
 描画層               src/TextRenderer.cpp   描画統合インタフェース
                      src/GlyphRenderer.cpp  グリフ単位描画・マスクキャッシング
                      src/Raster.cpp         ARGB8888 への合成（マスク/矩形/画像）
+                     src/pdf/PdfWriter.cpp  PDF 出力（任意ターゲット richtext_pdf）
 レイアウト層（横組み） src/StyledLayout.cpp    タグ付きテキストのレイアウト（タグ解析+行分割+セグメント構築）
                      src/ParagraphLayout.cpp 複数行レイアウト（行分割）
                      src/TextLayout.cpp      1行レイアウト（minikin::Layout）
@@ -135,6 +136,20 @@ HarfBuzz を直接叩く。
 コンテナは段に分かれる。縦組みでは段が上下に並び、段の中で列が右から左へ進む。
 段の高さ＝行長なので、高さの違うコンテナへまたぐときは残りをその行長で組み直す。
 
+### PDF 出力
+
+組版層の出力（`GlyphInfo` の列）をラスタライズ backend と PDF backend が並列に
+受け取る。**同じ組版結果から画面と PDF を出す**ためのもので、既存 PDF ライブラリに
+文字列を渡す方式は採らない（ライブラリ側が再シェイピングして組版結果が崩れる）。
+
+- `Identity-H` + CIDFontType0（CFF）/ CIDFontType2（glyf）でフォントを full embed
+- 1 グリフずつ `Tm` で置く。縦組みでも `Identity-V` は使わない
+  （縦メトリクスは組版層で計算済みなので、PDF 側に再計算させない）
+- グリフ固有の変形は `include/richtext/GlyphTransform.hpp` に切り出してあり、
+  `GlyphRenderer` と `PdfWriter` が同じものを使う。ここが分かれると画面と PDF で
+  斜体や横倒しがずれる
+- `Tm` にフォントサイズを入れないこと。`Tf` が掛けるので二重に効く
+
 進捗とフェーズ計画は `縦組み設計.md` と `実装.md` を見ること。
 
 ### データフロー
@@ -159,7 +174,11 @@ HarfBuzz を直接叩く。
 - `sample_render.exe` — 動作確認サンプル（**リポジトリルートから実行**すること）
 - `sample_sequential.exe` — 逐次表示サンプル（ParagraphLayout / StyledLayout）
 - `sample_texture.exe` — テクスチャアトラスサンプル（ParagraphLayout / StyledLayout）
-- `sample_vertical.exe` — 縦組みサンプル（VerticalLayout）
+- `sample_vertical.exe` — 縦組みサンプル（ベタ組み・JLReq 組版・インライン要素）
+- `sample_vertical_page.exe` — 縦組みのブロック組版サンプル（段組・ページ流し込み）
+- `richtext_pdf` — PDF 出力の静的ライブラリ（CMake オプション `RICHTEXT_PDF`。
+  単体ビルドでは既定 ON、親プロジェクトに組み込むときは既定 OFF）
+- `sample_vertical_pdf.exe` — 同じ組版結果から画面と PDF を出すサンプル
 
 ### 参考ドキュメント
 

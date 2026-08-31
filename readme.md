@@ -44,6 +44,8 @@ build/x64-windows/Release/sample_render.exe
 - `sample_texture.exe` - テクスチャグリフ展開サンプル
 - `sample_vertical.exe` — 縦組みサンプル（ベタ組み・JLReq 組版・ルビ等）
 - `sample_vertical_page.exe` — 縦組みのブロック組版サンプル（段組・ページ流し込み）
+- `richtext_pdf` — PDF 出力（任意ターゲット。`-DRICHTEXT_PDF=ON`、単体ビルドでは既定 ON）
+- `sample_vertical_pdf.exe` — 同じ組版結果から画面と PDF を出すサンプル
 
 ## ライセンス
 

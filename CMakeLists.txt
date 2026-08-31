@@ -92,6 +92,30 @@ else()
 endif()
 
 #------------------------------------------------------------------------------
+# PDF backend（任意ターゲット）
+#
+# 組版結果（GlyphInfo 列）をそのまま PDF へ書き出す。ラスタライズ backend と
+# 並列に置かれた出力先で、同じ組版結果から画面と PDF が出るようにするためのもの。
+# 吉里吉里プラグインはこれをリンクしないので、独立した static library にする。
+#------------------------------------------------------------------------------
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(RICHTEXT_PDF_DEFAULT ON)
+else()
+    set(RICHTEXT_PDF_DEFAULT OFF)
+endif()
+option(RICHTEXT_PDF "Build the PDF writer backend" ${RICHTEXT_PDF_DEFAULT})
+
+if(RICHTEXT_PDF)
+    add_library(richtext_pdf STATIC
+        src/pdf/PdfWriter.cpp
+        src/pdf/SfntInfo.cpp
+    )
+    target_link_libraries(richtext_pdf PUBLIC richtext_lib)
+    target_compile_definitions(richtext_pdf PUBLIC RICHTEXT_USE_PDF)
+endif()
+
+#------------------------------------------------------------------------------
 # サンプル実行ファイル（トップレベルプロジェクトの場合のみビルド）
 #------------------------------------------------------------------------------
 
@@ -113,6 +137,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     add_executable(sample_vertical_page sample/sample_vertical_page.cpp)
     target_link_libraries(sample_vertical_page PRIVATE richtext_lib)
+
+    if(RICHTEXT_PDF)
+        add_executable(sample_vertical_pdf sample/sample_vertical_pdf.cpp)
+        target_link_libraries(sample_vertical_pdf PRIVATE richtext_pdf)
+    endif()
 
     add_executable(debug_bidi sample/debug_bidi.cpp)
     target_link_libraries(debug_bidi PRIVATE richtext_lib)

@@ -11,6 +11,8 @@
 
 #include "richtext/GlyphRenderer.hpp"
 
+#include "richtext/GlyphTransform.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>  // std::memcpy (MSVC は他ヘッダ経由で見えるが GCC/libstdc++ では明示が必要)
@@ -65,7 +67,7 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
     const FontFace* font = glyph.font;
 
     // ルビ・圏点・割注のようにグリフ単位でサイズが違う場合は GlyphInfo 側を優先する
-    const float fontSize = (glyph.fontSize > 0.0f) ? glyph.fontSize : style.fontSize;
+    const float fontSize = glyphFontSize(glyph, style);
 
     // フォント幅の処理: wdth 軸 + フェイク水平スケール
     float fakeScaleX = 1.0f;
@@ -117,45 +119,11 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
         return;
     }
 
-    // フェイクイタリック: シアー係数（Android と同じ -0.25 ≒ 14度）
-    float skewX = 0.0f;
-    minikin::FontFakery fakery = glyph.fakery;
-    if (fakery.isFakeItalic()) {
-        skewX = -0.25f;
-    }
-
     // フェイクボールド: フォントサイズの 1/24 のストローク幅で太字をシミュレート
-    float fakeBoldStroke = 0.0f;
-    if (fakery.isFakeBold()) {
-        fakeBoldStroke = fontSize / 24.0f;
-    }
+    const float fakeBoldStroke = fakeBoldStrokeWidth(glyph, fontSize);
 
-    // グリフ固有の変形（ベースライン原点・y-down）
-    //   フェイク幅は X スケール、フェイクイタリックは X シアー
-    Matrix2D glyphMat;
-    glyphMat.e11 = fakeScaleX;
-    glyphMat.e12 = skewX;   // y-down 座標では pt.x += skewX * pt.y
-    glyphMat.e21 = 0.0f;
-    glyphMat.e22 = 1.0f;
-
-    // GlyphInfo が持つグリフ単位の変形（縦中横の圧縮、縦組みの欧文横倒し等）
-    // を重ねる。順序は「フェイク幅／斜体 → スケール → 回転」。
-    if (glyph.scaleX != 1.0f || glyph.scaleY != 1.0f) {
-        Matrix2D s;
-        s.e11 = glyph.scaleX;
-        s.e22 = glyph.scaleY;
-        glyphMat = multiply(s, glyphMat);
-    }
-    if (glyph.rotation != 0.0f) {
-        // 角度は数学慣習（y-up）の反時計回りが正。描画先が y-down なので
-        // Y 反転で共役を取った形になり、シアー成分の符号が入れ替わる。
-        const float cosR = std::cos(glyph.rotation);
-        const float sinR = std::sin(glyph.rotation);
-        Matrix2D r;
-        r.e11 = cosR;  r.e12 = sinR;
-        r.e21 = -sinR; r.e22 = cosR;
-        glyphMat = multiply(r, glyphMat);
-    }
+    // グリフ固有の変形（フェイク幅・斜体・スケール・回転）。PDF 出力と共有する
+    const Matrix2D glyphMat = makeGlyphMatrix(glyph, fakeScaleX);
 
     // 各 DrawStyle を描画
     for (const auto& drawStyle : appearance.getStyles()) {
