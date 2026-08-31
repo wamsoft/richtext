@@ -1,9 +1,10 @@
 /**
  * sample_vertical.cpp
  *
- * 縦組み（Phase 1）の動作確認サンプル
+ * 縦組みの動作確認サンプル（Phase 1 / Phase 2）
  *
- * 縦 1 行のベタ組みと、和文正立／欧文横倒しの混在を確認する。
+ * 縦 1 行のベタ組み・和文正立／欧文横倒しの混在（Phase 1）と、
+ * JLReq の約物の詰め・禁則・行分割・両端揃え・ぶら下げ（Phase 2）を確認する。
  * data/ 以下の Noto フォントを使用し、output_vertical.bmp を出力する。
  *
  * ※ リポジトリルートから実行すること（フォントを ./data/ から読む）
@@ -15,6 +16,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <algorithm>
 
 #include "richtext/FontManager.hpp"
 #include "richtext/FontFace.hpp"
@@ -22,6 +24,7 @@
 #include "richtext/Appearance.hpp"
 #include "richtext/TextRenderer.hpp"
 #include "richtext/vertical/VerticalLayout.hpp"
+#include "richtext/vertical/VerticalParagraphLayout.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -125,10 +128,10 @@ int main() {
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
-    printf("=== richtext Vertical Sample (Phase 1) ===\n\n");
+    printf("=== richtext Vertical Sample ===\n\n");
 
-    const int WIDTH  = 900;
-    const int HEIGHT = 1000;
+    const int WIDTH  = 2800;
+    const int HEIGHT = 960;
     std::vector<uint32_t> buffer(static_cast<size_t>(WIDTH) * HEIGHT, 0xFFFFFFFF);
 
     //--------------------------------------------------------------------------
@@ -246,9 +249,145 @@ int main() {
     }
 
     //--------------------------------------------------------------------------
-    // 4. 出力
+    // 4. JLReq コア（Phase 2）— 約物の詰め・禁則・行分割・両端揃え
     //--------------------------------------------------------------------------
-    printf("\n3. Saving...\n");
+    printf("\n3. Paragraph layout (JLReq)...\n");
+
+    const std::u16string body = utf8ToUtf16(
+        u8"吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。"
+        u8"何でも薄暗いじめじめした所でニャーニャー泣いていた事だけは記憶している。"
+        u8"「吾輩はここで始めて人間というものを見た」と、後で聞くとそれは書生という"
+        u8"人間中で一番獰悪な種族であったそうだ。この書生というのは時々我々を捕えて"
+        u8"煮て食うという話である。ABC や 123 のような欧文・数字も混ざる（括弧付き）。");
+
+    const float bodyTop = 90.0f;
+    const float lineLen = 760.0f;
+
+    struct ParaCase {
+        const char* label;
+        richtext::vertical::VerticalLayoutOptions opts;
+    };
+
+    std::vector<ParaCase> paraCases;
+    {
+        using namespace richtext::vertical;
+
+        ParaCase beta{"beta (no spacing)", {}};
+        beta.opts.spacing.punctuationSpacing = false;
+        beta.opts.lineBreak.justify = false;
+        beta.opts.lineGap = 12.0f;
+        paraCases.push_back(beta);
+
+        ParaCase greedy{"JLReq greedy", {}};
+        greedy.opts.lineGap = 12.0f;
+        paraCases.push_back(greedy);
+
+        ParaCase kp{"Knuth-Plass", {}};
+        kp.opts.lineBreak.strategy = LineBreakStrategy::KnuthPlass;
+        kp.opts.lineGap = 12.0f;
+        paraCases.push_back(kp);
+    }
+
+    float paraX = centerX - 60.0f;
+    for (const auto& pc : paraCases) {
+        richtext::vertical::VerticalParagraphLayout para;
+        para.layout(body, style, lineLen, pc.opts);
+
+        // 版面の枠
+        const float blockWidth = para.getTotalWidth();
+        renderer.drawRect(paraX - blockWidth + para.getLineAdvance() * 0.5f, bodyTop,
+                          blockWidth, lineLen,
+                          0x00000000, 0xFFDDDDDD, 1.0f);
+
+        renderer.drawVerticalParagraphLayout(para, paraX, bodyTop, black);
+
+        renderer.drawText(utf8ToUtf16(pc.label), paraX - 40.0f, bodyTop - 24.0f,
+                          smallStyle, gray);
+
+        // 禁則の検算: 行頭に来てはいけない文字・行末に来てはいけない文字を数える
+        int startViolations = 0, endViolations = 0;
+        for (size_t li = 0; li < para.getLineCount(); ++li) {
+            const auto& ln = para.getLine(li);
+            if (ln.charStart < body.size()) {
+                if (richtext::vertical::isLineStartProhibited(
+                        richtext::vertical::getCharClass(body[ln.charStart]))) {
+                    ++startViolations;
+                }
+            }
+            if (ln.charEnd > 0 && ln.charEnd <= body.size()) {
+                if (richtext::vertical::isLineEndProhibited(
+                        richtext::vertical::getCharClass(body[ln.charEnd - 1]))) {
+                    ++endViolations;
+                }
+            }
+        }
+
+        // ぶら下げの検算: 行末の約物を版面外へ出した行を数える
+        int hangLines = 0;
+        for (const auto& ln : para.getLines()) {
+            if (ln.hanging) ++hangLines;
+        }
+
+        printf("   %-20s lines=%zu maxLen=%.1f (target %.1f) "
+               "kinsoku: head=%d tail=%d  hanging lines=%d\n",
+               pc.label, para.getLineCount(), para.getMaxLineLength(), lineLen,
+               startViolations, endViolations, hangLines);
+
+        paraX -= blockWidth + 40.0f;
+    }
+
+    //--------------------------------------------------------------------------
+    // 5. 禁則とぶら下げの比較（行長を句読点の位置に当てて挙動を見る）
+    //--------------------------------------------------------------------------
+    printf("\n4. Kinsoku / hanging punctuation...\n");
+
+    // 5 文字 + 句点 の繰り返し。行長を「5 文字 + 句点の字面」より少し短く取ると
+    //   ぶら下げ無し → 句点を次行の行頭へ送れない（行頭禁則）ので 1 文字追い出す
+    //   ぶら下げ有り → 句点だけ版面の外へ出して 5 文字を行に残す
+    const std::u16string hangText = utf8ToUtf16(
+        u8"あいうえお。かきくけこ。さしすせそ。たちつてと。なにぬねの。");
+    const float hangLineLen = 170.0f;
+
+    struct HangCase {
+        const char* label;
+        bool hanging;
+    };
+    const HangCase hangCases[] = {
+        {"kinsoku only", false},
+        {"+ hanging", true},
+    };
+
+    for (const auto& hc : hangCases) {
+        richtext::vertical::VerticalLayoutOptions opts;
+        opts.spacing.hangingPunctuation = hc.hanging;
+        opts.lineGap = 12.0f;
+
+        richtext::vertical::VerticalParagraphLayout para;
+        para.layout(hangText, style, hangLineLen, opts);
+
+        const float blockWidth = para.getTotalWidth();
+        renderer.drawRect(paraX - blockWidth + para.getLineAdvance() * 0.5f, bodyTop,
+                          blockWidth, hangLineLen,
+                          0x00000000, 0xFFDDDDDD, 1.0f);
+
+        renderer.drawVerticalParagraphLayout(para, paraX, bodyTop, black);
+        renderer.drawText(utf8ToUtf16(hc.label), paraX - 40.0f, bodyTop - 24.0f,
+                          smallStyle, gray);
+
+        int hangLines = 0;
+        for (const auto& ln : para.getLines()) {
+            if (ln.hanging) ++hangLines;
+        }
+        printf("   %-20s lines=%zu (target %.1f) hanging lines=%d\n",
+               hc.label, para.getLineCount(), hangLineLen, hangLines);
+
+        paraX -= blockWidth + 40.0f;
+    }
+
+    //--------------------------------------------------------------------------
+    // 6. 出力
+    //--------------------------------------------------------------------------
+    printf("\n5. Saving...\n");
     saveBMP("output_vertical.bmp", buffer.data(), WIDTH, HEIGHT);
 
     printf("\nDone.\n");

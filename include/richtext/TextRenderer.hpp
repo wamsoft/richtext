@@ -15,6 +15,7 @@
 #include "richtext/ParagraphLayout.hpp"
 #include "richtext/StyledLayout.hpp"
 #include "richtext/vertical/VerticalLayout.hpp"
+#include "richtext/vertical/VerticalParagraphLayout.hpp"
 
 namespace richtext {
 
@@ -183,6 +184,38 @@ public:
                              float x, float y,
                              const Appearance& appearance,
                              int maxChars = -1);
+
+    /**
+     * レイアウト済み縦組み段落の描画
+     * @param para VerticalParagraphLayout
+     * @param originX 1 列目の縦ベースライン（列の中心線）のX座標
+     * @param originY 行頭のY座標
+     * @param appearance 描画外観
+     * @param maxChars 描画する文字数上限（-1 = 全て）
+     * @return 描画領域
+     */
+    RectF drawVerticalParagraphLayout(const vertical::VerticalParagraphLayout& para,
+                                      float originX, float originY,
+                                      const Appearance& appearance,
+                                      int maxChars = -1);
+
+    /**
+     * 縦組み段落の描画
+     * @param text UTF-16 テキスト（改行を含んでよい）
+     * @param originX 1 列目の縦ベースライン（列の中心線）のX座標
+     * @param originY 行頭のY座標
+     * @param lineLength 1 行の長さ（列の長さ）
+     * @param style テキストスタイル
+     * @param appearance 描画外観
+     * @param opts 縦組みオプション
+     * @return 描画領域
+     */
+    RectF drawVerticalParagraph(const std::u16string& text,
+                                float originX, float originY,
+                                float lineLength,
+                                const TextStyle& style,
+                                const Appearance& appearance,
+                                const vertical::VerticalLayoutOptions& opts = {});
 
     /**
      * パラグラフレイアウト済みの描画（単一スタイル）

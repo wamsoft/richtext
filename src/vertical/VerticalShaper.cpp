@@ -168,73 +168,92 @@ VerticalShaper::Result VerticalShaper::shape(const std::u16string& text,
                 continue;
             }
 
-            if (upright) {
-                // TTB: HarfBuzz は縦原点を差し引いた offset を返すので、グリフは
-                // 通常どおり（水平原点で）ペン位置に置けばよい。y は上向き正なので
-                // 描画先（y-down）では符号を反転する。
-                for (unsigned int i = 0; i < numGlyphs; ++i) {
+            // 横倒しラン用: 欧文ベースラインを列の中心へずらす量（アセントは
+            // +u 側、ディセントは -u 側へ倒れるので、その中点を 0 に合わせる）
+            float baselineU = 0.0f;
+            float ascent = 0.0f, descent = 0.0f;
+            if (!upright) {
+                const FontFaceMetrics& fm = face->getFaceMetrics();
+                const float upem = (fm.unitsPerEm > 0) ? fm.unitsPerEm : 1000.0f;
+                ascent = fm.ascenderUnits / upem * size;      // 正
+                descent = -fm.descenderUnits / upem * size;   // 正
+                baselineU = (descent - ascent) * 0.5f;
+            }
+
+            // HarfBuzz のクラスタ単位でまとめる（組版層はこの単位で扱う）
+            for (unsigned int i = 0; i < numGlyphs;) {
+                unsigned int j = i;
+                while (j + 1 < numGlyphs && info[j + 1].cluster == info[i].cluster) {
+                    ++j;
+                }
+
+                ShapedCluster sc;
+                sc.glyphStart = static_cast<uint32_t>(result.glyphs.size());
+                sc.charStart = info[i].cluster;
+                sc.charEnd = (j + 1 < numGlyphs) ? info[j + 1].cluster
+                                                 : static_cast<size_t>(segEnd);
+                sc.origin = pen;
+                sc.upright = upright;
+                {
+                    size_t cpLen = 1;
+                    sc.charClass = getCharClass(codePointAt(text, sc.charStart, cpLen));
+                }
+
+                float clusterAdvance = 0.0f;
+                for (unsigned int k = i; k <= j; ++k) {
                     GlyphInfo g;
-                    g.glyphId = info[i].codepoint;
+                    g.glyphId = info[k].codepoint;
                     g.font = face;
-                    g.x = HBFixedToFloat(pos[i].x_offset);
-                    g.y = pen - HBFixedToFloat(pos[i].y_offset);
-                    g.charIndex = info[i].cluster;
+                    g.charIndex = info[k].cluster;
                     g.fakery = run.fakedFont.fakery;
 
-                    // y_advance は下向きが負
-                    float adv = -HBFixedToFloat(pos[i].y_advance);
-                    const bool clusterEnd =
-                            (i + 1 == numGlyphs) || info[i + 1].cluster != info[i].cluster;
-                    if (clusterEnd) adv += letterSpacing;
+                    float adv;
+                    if (upright) {
+                        // TTB: HarfBuzz は縦原点を差し引いた offset を返すので、
+                        // グリフは通常どおり（水平原点で）ペン位置に置けばよい。
+                        // y は上向き正なので描画先（y-down）では符号を反転する。
+                        g.x = HBFixedToFloat(pos[k].x_offset);
+                        g.y = pen - HBFixedToFloat(pos[k].y_offset);
+                        adv = -HBFixedToFloat(pos[k].y_advance);   // 下向きが負
+                    } else {
+                        // 横倒し: 横組みで組んでから列へ 90 度倒す。
+                        //   ローカル (lx, ly) → 列 (u, v) = (-ly, lx)
+                        const float ly = -HBFixedToFloat(pos[k].y_offset);
+                        g.x = -ly + baselineU;
+                        g.y = pen + HBFixedToFloat(pos[k].x_offset);
+                        g.rotation = kSidewaysRotation;
+                        adv = HBFixedToFloat(pos[k].x_advance);
+                    }
 
+                    clusterAdvance += adv;
                     g.advance = adv;
                     pen += adv;
                     result.glyphs.push_back(g);
                 }
-                // 正立の列幅はベタ組みの 1em（約物の詰めは Phase 2）
+
+                // 字間はクラスタの区切りに入れる。Phase 2 の組版層は
+                // ShapedCluster::advance（字間を含まない素の送り）を使う。
+                if (letterSpacing != 0.0f && !result.glyphs.empty()) {
+                    result.glyphs.back().advance += letterSpacing;
+                    pen += letterSpacing;
+                }
+
+                sc.glyphCount = static_cast<uint32_t>(result.glyphs.size()) - sc.glyphStart;
+                sc.advance = clusterAdvance;
+                result.clusters.push_back(sc);
+
+                i = j + 1;
+            }
+
+            if (upright) {
+                // 正立の列幅はベタ組みの 1em
                 minU = std::min(minU, -size * 0.5f);
                 maxU = std::max(maxU, size * 0.5f);
-                haveExtent = true;
             } else {
-                // 横倒し: 横組みで組んでから列へ 90 度倒す。
-                //   ローカル (lx, ly) → 列 (u, v) = (-ly, lx)
-                // 欧文ベースラインは列の中心へずらす（アセントは +u 側、
-                // ディセントは -u 側へ倒れるので、その中点を 0 に合わせる）。
-                const FontFaceMetrics& fm = face->getFaceMetrics();
-                const float upem = (fm.unitsPerEm > 0) ? fm.unitsPerEm : 1000.0f;
-                const float ascent = fm.ascenderUnits / upem * size;    // 正
-                const float descent = -fm.descenderUnits / upem * size; // 正
-                const float baselineU = (descent - ascent) * 0.5f;
-
-                float x = 0.0f;   // ラン内の横方向送り
-                for (unsigned int i = 0; i < numGlyphs; ++i) {
-                    const float lx = x + HBFixedToFloat(pos[i].x_offset);
-                    const float ly = -HBFixedToFloat(pos[i].y_offset);
-
-                    GlyphInfo g;
-                    g.glyphId = info[i].codepoint;
-                    g.font = face;
-                    g.x = -ly + baselineU;
-                    g.y = pen + lx;
-                    g.charIndex = info[i].cluster;
-                    g.fakery = run.fakedFont.fakery;
-                    g.rotation = kSidewaysRotation;
-
-                    float adv = HBFixedToFloat(pos[i].x_advance);
-                    const bool clusterEnd =
-                            (i + 1 == numGlyphs) || info[i + 1].cluster != info[i].cluster;
-                    if (clusterEnd) adv += letterSpacing;
-
-                    g.advance = adv;
-                    x += adv;
-                    result.glyphs.push_back(g);
-                }
-                pen += x;
-
                 minU = std::min(minU, baselineU - descent);
                 maxU = std::max(maxU, baselineU + ascent);
-                haveExtent = true;
             }
+            haveExtent = true;
 
             segStart = segEnd;
         }

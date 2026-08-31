@@ -58,6 +58,11 @@ set(RICHTEXT_LIB_SOURCES
     src/vertical/WritingMode.cpp
     src/vertical/VerticalShaper.cpp
     src/vertical/VerticalLayout.cpp
+    src/vertical/CharClass.cpp
+    src/vertical/SpacingTable.cpp
+    src/vertical/LineItemBuilder.cpp
+    src/vertical/LineBreaker.cpp
+    src/vertical/VerticalParagraphLayout.cpp
 )
 
 add_library(richtext_lib STATIC ${RICHTEXT_LIB_SOURCES})

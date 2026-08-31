@@ -46,7 +46,12 @@ make build BUILD_TYPE=Debug            # デバッグビルド
 レイアウト層（横組み） src/StyledLayout.cpp    タグ付きテキストのレイアウト（タグ解析+行分割+セグメント構築）
                      src/ParagraphLayout.cpp 複数行レイアウト（行分割）
                      src/TextLayout.cpp      1行レイアウト（minikin::Layout）
-レイアウト層（縦組み） src/vertical/VerticalLayout.cpp 縦1行レイアウト
+レイアウト層（縦組み） src/vertical/VerticalParagraphLayout.cpp 縦組み段落（行分割＋配置）
+                     src/vertical/LineBreaker.cpp    自前行分割（Greedy / Knuth-Plass）
+                     src/vertical/LineItemBuilder.cpp クラスタ列→Box/Glue/Penalty 列
+                     src/vertical/SpacingTable.cpp   JLReq 表3 のアキ量
+                     src/vertical/CharClass.cpp      JLReq 文字クラス・禁則
+                     src/vertical/VerticalLayout.cpp 縦1行レイアウト（ベタ組み）
                      src/vertical/VerticalShaper.cpp 縦組みシェイピング（HarfBuzz TTB 直叩き）
                      src/vertical/WritingMode.cpp    書字方向・座標系・UAX#50 相当の向き判定
 テクスチャ管理層     src/TextureAtlas.cpp    グリフのテクスチャアトラス管理
@@ -104,6 +109,18 @@ HarfBuzz を直接叩く。
   からの左右、`GlyphInfo::y` = 行頭からの送り
 - グリフの回転・スケールは `GlyphInfo::rotation` / `scaleX` / `scaleY` で渡し、
   `GlyphRenderer` が既存のアフィン行列へ畳み込む
+
+和文組版そのものは「グリフ配置の問題」ではなく **文字クラス間のアキ（グルー）と
+ペナルティの列を解く問題** として扱う。1 文字＝1em の箱を並べる方式では約物の詰め・
+禁則・追い込み／追い出しが原理的に表現できないため。
+
+- `CharClass` が JLReq の文字クラスへ分類し、`SpacingTable` が隣接ペアの
+  アキ量（自然値・伸び・縮み）を返す
+- `LineItemBuilder` が Box / Glue / Penalty 列へ変換する。約物は仮想ボディを
+  半角へ詰め、禁則は Glue の直前の Penalty(∞)、ぶら下げは幅が負の Penalty で表す
+- `LineBreaker`（自前・minikin のものは使わない）が行を決め、グルーの調整比を返す。
+  追い込み・追い出し・両端揃えはこの 1 つの比で表現される
+- `VerticalParagraphLayout` が段落全体をまとめ、行ごとの `GlyphInfo` 列を作る
 
 進捗とフェーズ計画は `縦組み設計.md` と `実装.md` を見ること。
 
