@@ -46,7 +46,8 @@ make build BUILD_TYPE=Debug            # デバッグビルド
 レイアウト層（横組み） src/StyledLayout.cpp    タグ付きテキストのレイアウト（タグ解析+行分割+セグメント構築）
                      src/ParagraphLayout.cpp 複数行レイアウト（行分割）
                      src/TextLayout.cpp      1行レイアウト（minikin::Layout）
-レイアウト層（縦組み） src/vertical/VerticalParagraphLayout.cpp 縦組み段落（行分割＋配置）
+レイアウト層（縦組み） src/vertical/BlockLayout.cpp     段組・連結コンテナ流し込み・ページ分割
+                     src/vertical/VerticalParagraphLayout.cpp 縦組み段落（行分割＋配置）
                      src/vertical/LineBreaker.cpp    自前行分割（Greedy / Knuth-Plass）
                      src/vertical/LineItemBuilder.cpp クラスタ列→Box/Glue/Penalty 列
                                                      （ルビ・縦中横・圏点・割注・字取りもここ）
@@ -129,6 +130,10 @@ HarfBuzz を直接叩く。
 ルビが親文字を広げる・縦中横が 1em の Box になる、といったことが行長に効くため。
 1 行の中で本文とサイズの違うグリフが混ざるので、サイズは `GlyphInfo::fontSize`
 （0 なら描画時のスタイルのサイズ）で持つ。
+
+段落より上（版面・段組・ページ）は `BlockLayout`。連結したコンテナへ順に流し込み、
+コンテナは段に分かれる。縦組みでは段が上下に並び、段の中で列が右から左へ進む。
+段の高さ＝行長なので、高さの違うコンテナへまたぐときは残りをその行長で組み直す。
 
 進捗とフェーズ計画は `縦組み設計.md` と `実装.md` を見ること。
 

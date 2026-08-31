@@ -16,6 +16,7 @@
 #include "richtext/StyledLayout.hpp"
 #include "richtext/vertical/VerticalLayout.hpp"
 #include "richtext/vertical/VerticalParagraphLayout.hpp"
+#include "richtext/vertical/BlockLayout.hpp"
 
 namespace richtext {
 
@@ -228,6 +229,30 @@ public:
                                 const TextStyle& style,
                                 const Appearance& appearance,
                                 const vertical::VerticalLayoutOptions& opts = {});
+
+    /**
+     * 流し込み済みブロックの描画（全コンテナ）
+     * @param block BlockLayout
+     * @param appearance 描画外観
+     * @param maxChars 描画する文字数上限（-1 = 全て。流し込み順に数える）
+     * @return 描画領域
+     */
+    RectF drawBlockLayout(const vertical::BlockLayout& block,
+                          const Appearance& appearance,
+                          int maxChars = -1);
+
+    /**
+     * 流し込み済みブロックの描画（コンテナ 1 つ分＝1 ページ）
+     * @param block BlockLayout
+     * @param containerIndex コンテナ番号
+     * @param offsetX,offsetY コンテナ座標に足すオフセット
+     * @param appearance 描画外観
+     * @return 描画領域
+     */
+    RectF drawBlockContainer(const vertical::BlockLayout& block,
+                             size_t containerIndex,
+                             float offsetX, float offsetY,
+                             const Appearance& appearance);
 
     /**
      * パラグラフレイアウト済みの描画（単一スタイル）

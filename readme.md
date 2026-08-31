@@ -42,6 +42,8 @@ build/x64-windows/Release/sample_render.exe
 - `sample_render.exe` — 動作確認サンプル
 - `sample_sequential.exe` — 逐次表示サンプル
 - `sample_texture.exe` - テクスチャグリフ展開サンプル
+- `sample_vertical.exe` — 縦組みサンプル（ベタ組み・JLReq 組版・ルビ等）
+- `sample_vertical_page.exe` — 縦組みのブロック組版サンプル（段組・ページ流し込み）
 
 ## ライセンス
 

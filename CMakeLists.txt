@@ -64,6 +64,7 @@ set(RICHTEXT_LIB_SOURCES
     src/vertical/LineItemBuilder.cpp
     src/vertical/LineBreaker.cpp
     src/vertical/VerticalParagraphLayout.cpp
+    src/vertical/BlockLayout.cpp
 )
 
 add_library(richtext_lib STATIC ${RICHTEXT_LIB_SOURCES})
@@ -109,6 +110,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     add_executable(sample_vertical sample/sample_vertical.cpp)
     target_link_libraries(sample_vertical PRIVATE richtext_lib)
+
+    add_executable(sample_vertical_page sample/sample_vertical_page.cpp)
+    target_link_libraries(sample_vertical_page PRIVATE richtext_lib)
 
     add_executable(debug_bidi sample/debug_bidi.cpp)
     target_link_libraries(debug_bidi PRIVATE richtext_lib)
