@@ -135,6 +135,25 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
     glyphMat.e21 = 0.0f;
     glyphMat.e22 = 1.0f;
 
+    // GlyphInfo が持つグリフ単位の変形（縦中横の圧縮、縦組みの欧文横倒し等）
+    // を重ねる。順序は「フェイク幅／斜体 → スケール → 回転」。
+    if (glyph.scaleX != 1.0f || glyph.scaleY != 1.0f) {
+        Matrix2D s;
+        s.e11 = glyph.scaleX;
+        s.e22 = glyph.scaleY;
+        glyphMat = multiply(s, glyphMat);
+    }
+    if (glyph.rotation != 0.0f) {
+        // 角度は数学慣習（y-up）の反時計回りが正。描画先が y-down なので
+        // Y 反転で共役を取った形になり、シアー成分の符号が入れ替わる。
+        const float cosR = std::cos(glyph.rotation);
+        const float sinR = std::sin(glyph.rotation);
+        Matrix2D r;
+        r.e11 = cosR;  r.e12 = sinR;
+        r.e21 = -sinR; r.e22 = cosR;
+        glyphMat = multiply(r, glyphMat);
+    }
+
     // 各 DrawStyle を描画
     for (const auto& drawStyle : appearance.getStyles()) {
         const float ox = glyphX + drawStyle.offsetX;
@@ -286,14 +305,19 @@ void GlyphRenderer::blendGlyph(const FontFace* font, uint32_t glyphId,
                       originX, originY, r, g, b, a);
 }
 
+void GlyphRenderer::renderGlyphs(const std::vector<GlyphInfo>& glyphs,
+                                 float x, float y,
+                                 const TextStyle& style,
+                                 const Appearance& appearance) {
+    for (const auto& glyph : glyphs) {
+        renderGlyph(glyph, x, y, style, appearance);
+    }
+}
+
 void GlyphRenderer::renderLayout(const TextLayout& layout,
                                  float x, float y,
                                  const Appearance& appearance) {
-    const TextStyle& style = layout.getStyle();
-
-    for (const auto& glyph : layout.getGlyphs()) {
-        renderGlyph(glyph, x, y, style, appearance);
-    }
+    renderGlyphs(layout.getGlyphs(), x, y, layout.getStyle(), appearance);
 }
 
 //------------------------------------------------------------------------------

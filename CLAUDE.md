@@ -43,9 +43,12 @@ make build BUILD_TYPE=Debug            # デバッグビルド
 描画層               src/TextRenderer.cpp   描画統合インタフェース
                      src/GlyphRenderer.cpp  グリフ単位描画・マスクキャッシング
                      src/Raster.cpp         ARGB8888 への合成（マスク/矩形/画像）
-レイアウト層         src/StyledLayout.cpp    タグ付きテキストのレイアウト（タグ解析+行分割+セグメント構築）
+レイアウト層（横組み） src/StyledLayout.cpp    タグ付きテキストのレイアウト（タグ解析+行分割+セグメント構築）
                      src/ParagraphLayout.cpp 複数行レイアウト（行分割）
                      src/TextLayout.cpp      1行レイアウト（minikin::Layout）
+レイアウト層（縦組み） src/vertical/VerticalLayout.cpp 縦1行レイアウト
+                     src/vertical/VerticalShaper.cpp 縦組みシェイピング（HarfBuzz TTB 直叩き）
+                     src/vertical/WritingMode.cpp    書字方向・座標系・UAX#50 相当の向き判定
 テクスチャ管理層     src/TextureAtlas.cpp    グリフのテクスチャアトラス管理
 スタイル管理層       src/TextStyle.cpp       minikin::MinikinPaint 設定
                      src/Appearance.cpp      DrawStyle（塗り/ストローク）
@@ -86,6 +89,24 @@ make build BUILD_TYPE=Debug            # デバッグビルド
 「6.1 描画バックエンドの差し替え」、thorvg を使う場合に
 アウトライン抽出を二重化しないための設計は「6.1.1」に書いてある。
 
+### 縦組み
+
+縦組みは横組み経路とは別系統で、`include/richtext/vertical/` に置く。
+minikin のシェイピングは LTR / RTL しか扱えない（`LayoutCore.cpp` が
+`HB_DIRECTION_LTR` / `RTL` しか設定しない）ため、`minikin::Layout` は通さず、
+`FontCollection::itemize()` によるフォントフォールバック解決だけ再利用して
+HarfBuzz を直接叩く。
+
+- 正立ラン（和文）は `HB_DIRECTION_TTB`。`vert` / `vrt2` の縦字形置換、
+  `vmtx` / `VORG` の縦アドバンスと原点補正、`vkrn` / `vpal` が HarfBuzz 側で効く
+- 横倒しラン（欧文）は `HB_DIRECTION_LTR` で組んでから列へ 90 度倒す
+- 座標系は `WritingMode.hpp` 参照。`GlyphInfo::x` = 縦ベースライン（列の中心線）
+  からの左右、`GlyphInfo::y` = 行頭からの送り
+- グリフの回転・スケールは `GlyphInfo::rotation` / `scaleX` / `scaleY` で渡し、
+  `GlyphRenderer` が既存のアフィン行列へ畳み込む
+
+進捗とフェーズ計画は `縦組み設計.md` と `実装.md` を見ること。
+
 ### データフロー
 
 1. 利用側が `FontManager` にローダー関数（またはバックエンド）を登録し、`registerFont()` でフォントを登録。バックエンドが face を開き、`FontFace`（`minikin::MinikinFont` 継承）として管理
@@ -108,8 +129,10 @@ make build BUILD_TYPE=Debug            # デバッグビルド
 - `sample_render.exe` — 動作確認サンプル（**リポジトリルートから実行**すること）
 - `sample_sequential.exe` — 逐次表示サンプル（ParagraphLayout / StyledLayout）
 - `sample_texture.exe` — テクスチャアトラスサンプル（ParagraphLayout / StyledLayout）
+- `sample_vertical.exe` — 縦組みサンプル（VerticalLayout）
 
 ### 参考ドキュメント
 
 - `設計.md` — クラス設計・詳細仕様
+- `縦組み設計.md` — 縦組み（JLReq 水準）の設計とフェーズ計画
 - `実装.md` — フェーズ別実装進捗

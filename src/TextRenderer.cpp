@@ -153,6 +153,56 @@ RectF TextRenderer::drawLayout(const TextLayout& layout,
                 bounds.right - bounds.left, bottom - top);
 }
 
+//------------------------------------------------------------------------------
+// 縦組み
+//------------------------------------------------------------------------------
+
+RectF TextRenderer::drawVerticalText(const std::u16string& text,
+                                     float x, float y,
+                                     const TextStyle& style,
+                                     const Appearance& appearance,
+                                     vertical::TextOrientation orientation) {
+    vertical::VerticalLayout layout;
+    layout.layout(text, style, orientation);
+
+    return drawVerticalLayout(layout, x, y, appearance);
+}
+
+RectF TextRenderer::drawVerticalLayout(const vertical::VerticalLayout& layout,
+                                       float x, float y,
+                                       const Appearance& appearance,
+                                       int maxChars) {
+    if (!glyphRenderer_) {
+        return RectF();
+    }
+
+    const auto& glyphs = layout.getGlyphs();
+    const TextStyle& style = layout.getStyle();
+
+    if (maxChars >= 0) {
+        // 論理順（charIndex 順）で先頭 maxChars 文字分のグリフのみ描画
+        std::vector<size_t> sorted;
+        sorted.reserve(glyphs.size());
+        for (const auto& g : glyphs) sorted.push_back(g.charIndex);
+        std::sort(sorted.begin(), sorted.end());
+        sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+        size_t threshold = (static_cast<size_t>(maxChars) < sorted.size())
+                           ? sorted[maxChars]
+                           : SIZE_MAX;
+        for (const auto& g : glyphs) {
+            if (g.charIndex < threshold) {
+                glyphRenderer_->renderGlyph(g, x, y, style, appearance);
+            }
+        }
+    } else {
+        glyphRenderer_->renderGlyphs(glyphs, x, y, style, appearance);
+    }
+
+    // 座標系は既に左上原点・y-down なのでそのまま矩形にする
+    return RectF(x + layout.getExtentLeft(), y,
+                 layout.getWidth(), layout.getLength());
+}
+
 RectF TextRenderer::drawParagraphLayout(const ParagraphLayout& para,
                                          const RectF& rect,
                                          ParagraphLayout::HAlign hAlign,

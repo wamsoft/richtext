@@ -26,6 +26,18 @@ struct GlyphInfo {
     float advance;              // アドバンス（送り幅）
     size_t charIndex;           // 元テキストでの文字位置
     minikin::FontFakery fakery; // 擬似スタイル情報
+
+    // --- グリフ固有の変形（既定は無変形） ---
+    // 描画側は「フェイク幅／斜体 → scaleX/scaleY → rotation」の順に
+    // 1 つのアフィン行列へ畳み込む。マスクキャッシュのキーは行列の 2x2 成分を
+    // 含むので、ここを使ってもキャッシュ設計は変わらない。
+
+    /// 回転角（ラジアン）。数学慣習（y-up）の反時計回りが正。
+    /// 描画先は y-down なので画面上は逆回り。縦組みの欧文横倒しは -90°。
+    float rotation = 0.0f;
+    /// グリフ単位のスケール（縦中横の圧縮など）
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
 };
 
 /**

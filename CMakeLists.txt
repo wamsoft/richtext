@@ -54,6 +54,10 @@ set(RICHTEXT_LIB_SOURCES
     src/TagParser.cpp
     src/TextureAtlas.cpp
     src/TimingInfo.cpp
+    # 縦組み（縦組み設計.md）
+    src/vertical/WritingMode.cpp
+    src/vertical/VerticalShaper.cpp
+    src/vertical/VerticalLayout.cpp
 )
 
 add_library(richtext_lib STATIC ${RICHTEXT_LIB_SOURCES})
@@ -96,6 +100,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     add_executable(sample_timing sample/sample_timing.cpp)
     target_link_libraries(sample_timing PRIVATE richtext_lib)
+
+    add_executable(sample_vertical sample/sample_vertical.cpp)
+    target_link_libraries(sample_vertical PRIVATE richtext_lib)
 
     add_executable(debug_bidi sample/debug_bidi.cpp)
     target_link_libraries(debug_bidi PRIVATE richtext_lib)
