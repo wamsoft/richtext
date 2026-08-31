@@ -272,6 +272,18 @@ RectF TextRenderer::drawVerticalParagraph(const std::u16string& text,
     return drawVerticalParagraphLayout(para, originX, originY, appearance);
 }
 
+RectF TextRenderer::drawVerticalParagraph(const std::u16string& text,
+                                          const std::vector<vertical::InlineAnnotation>& annotations,
+                                          float originX, float originY,
+                                          float lineLength,
+                                          const TextStyle& style,
+                                          const Appearance& appearance,
+                                          const vertical::VerticalLayoutOptions& opts) {
+    vertical::VerticalParagraphLayout para;
+    para.layout(text, annotations, style, lineLength, opts);
+    return drawVerticalParagraphLayout(para, originX, originY, appearance);
+}
+
 RectF TextRenderer::drawParagraphLayout(const ParagraphLayout& para,
                                          const RectF& rect,
                                          ParagraphLayout::HAlign hAlign,

@@ -4,7 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
+#include "richtext/TextLayout.hpp"   // GlyphInfo
 #include "richtext/vertical/CharClass.hpp"
 #include "richtext/vertical/SpacingTable.hpp"
 
@@ -60,6 +62,23 @@ struct LineItem {
 
     /// 元テキストでの位置（UTF-16 単位）
     size_t charIndex = 0;
+
+    // --- インライン注記（ルビ・縦中横・圏点・割注） ---
+
+    /**
+     * Box に紐づくグリフ列。座標は Box の先頭（v = 0）と縦ベースライン（u = 0）
+     * からの相対値。
+     *
+     *  - `ownGlyphs` が true … この列が Box の本体（縦中横・割注）。
+     *    clusterIndex のグリフは描かない
+     *  - false … クラスタのグリフに加えて描く付随グリフ（ルビ・圏点）
+     */
+    std::vector<GlyphInfo> glyphs;
+    bool ownGlyphs = false;
+
+    /// この Box が要求する u 方向の張り出し（既定の ±0.5em を超える分だけ）
+    float extentLeft = 0.0f;
+    float extentRight = 0.0f;
 
     static constexpr uint32_t kNoCluster = std::numeric_limits<uint32_t>::max();
 

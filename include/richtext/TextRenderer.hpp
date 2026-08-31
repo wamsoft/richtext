@@ -218,6 +218,18 @@ public:
                                 const vertical::VerticalLayoutOptions& opts = {});
 
     /**
+     * 縦組み段落の描画（インライン注記あり）
+     * @param annotations ルビ・縦中横・圏点・割注・字取り
+     */
+    RectF drawVerticalParagraph(const std::u16string& text,
+                                const std::vector<vertical::InlineAnnotation>& annotations,
+                                float originX, float originY,
+                                float lineLength,
+                                const TextStyle& style,
+                                const Appearance& appearance,
+                                const vertical::VerticalLayoutOptions& opts = {});
+
+    /**
      * パラグラフレイアウト済みの描画（単一スタイル）
      * @param para ParagraphLayout（事前計算済み）
      * @param rect 描画領域

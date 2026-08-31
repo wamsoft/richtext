@@ -60,6 +60,7 @@ set(RICHTEXT_LIB_SOURCES
     src/vertical/VerticalLayout.cpp
     src/vertical/CharClass.cpp
     src/vertical/SpacingTable.cpp
+    src/vertical/InlineAnnotation.cpp
     src/vertical/LineItemBuilder.cpp
     src/vertical/LineBreaker.cpp
     src/vertical/VerticalParagraphLayout.cpp

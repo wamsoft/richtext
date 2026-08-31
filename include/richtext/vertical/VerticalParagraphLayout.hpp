@@ -84,6 +84,20 @@ public:
     void layout(const std::u16string& text, const TextStyle& style,
                 float lineLength, const VerticalLayoutOptions& opts = {});
 
+    /**
+     * レイアウト実行（インライン注記あり）
+     * @param text UTF-16 テキスト（改行 \n / \r\n を含んでよい）
+     * @param annotations ルビ・縦中横・圏点・割注・字取り。
+     *                    範囲は text 内の UTF-16 位置で指定する
+     * @param style テキストスタイル
+     * @param lineLength 1 行の長さ（列の長さ）
+     * @param opts オプション
+     */
+    void layout(const std::u16string& text,
+                const std::vector<InlineAnnotation>& annotations,
+                const TextStyle& style,
+                float lineLength, const VerticalLayoutOptions& opts = {});
+
     // ------------------------------------------------------------------
     // 結果
     // ------------------------------------------------------------------
@@ -125,6 +139,7 @@ private:
     std::u16string text_;
     TextStyle style_;
     VerticalLayoutOptions options_;
+    std::vector<InlineAnnotation> annotations_;
 
     std::vector<Line> lines_;
     float lineLength_ = 0.0f;

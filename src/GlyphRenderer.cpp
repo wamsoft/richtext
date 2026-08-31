@@ -64,6 +64,9 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
 
     const FontFace* font = glyph.font;
 
+    // ルビ・圏点・割注のようにグリフ単位でサイズが違う場合は GlyphInfo 側を優先する
+    const float fontSize = (glyph.fontSize > 0.0f) ? glyph.fontSize : style.fontSize;
+
     // フォント幅の処理: wdth 軸 + フェイク水平スケール
     float fakeScaleX = 1.0f;
     if (style.fontWidth != 100.0f) {
@@ -85,11 +88,11 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
         // ビットマップ描画（絵文字の下端をベースラインに合わせる）
         if (useCache_) {
             BitmapCacheKey key{reinterpret_cast<uintptr_t>(font), glyph.glyphId,
-                               static_cast<uint32_t>(style.fontSize * 64.0f + 0.5f)};
+                               static_cast<uint32_t>(fontSize * 64.0f + 0.5f)};
             auto it = bitmapCache_.find(key);
             if (it == bitmapCache_.end()) {
                 GlyphBitmap bitmap;
-                if (font->getGlyphBitmap(glyph.glyphId, style.fontSize, bitmap)) {
+                if (font->getGlyphBitmap(glyph.glyphId, fontSize, bitmap)) {
                     size_t byteSize = bitmap.data.size();
                     bitmapCache_.emplace(key, std::move(bitmap));
                     cacheUsedBytes_ += byteSize;
@@ -99,14 +102,14 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
             }
             if (it != bitmapCache_.end()) {
                 const GlyphBitmap& bitmap = it->second;
-                float scale = (bitmap.strikeHeight > 0) ? (style.fontSize / bitmap.strikeHeight) : 1.0f;
+                float scale = (bitmap.strikeHeight > 0) ? (fontSize / bitmap.strikeHeight) : 1.0f;
                 renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
                              glyphY - bitmap.bearingY * scale, scale);
             }
         } else {
             GlyphBitmap bitmap;
-            if (font->getGlyphBitmap(glyph.glyphId, style.fontSize, bitmap)) {
-                float scale = (bitmap.strikeHeight > 0) ? (style.fontSize / bitmap.strikeHeight) : 1.0f;
+            if (font->getGlyphBitmap(glyph.glyphId, fontSize, bitmap)) {
+                float scale = (bitmap.strikeHeight > 0) ? (fontSize / bitmap.strikeHeight) : 1.0f;
                 renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
                              glyphY - bitmap.bearingY * scale, scale);
             }
@@ -124,7 +127,7 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
     // フェイクボールド: フォントサイズの 1/24 のストローク幅で太字をシミュレート
     float fakeBoldStroke = 0.0f;
     if (fakery.isFakeBold()) {
-        fakeBoldStroke = style.fontSize / 24.0f;
+        fakeBoldStroke = fontSize / 24.0f;
     }
 
     // グリフ固有の変形（ベースライン原点・y-down）
@@ -162,11 +165,11 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
         if (drawStyle.type == DrawStyle::Type::Fill) {
             // 塗り（フェイクボールドは同色の縁取りを重ねて太らせる）
             blendGlyph(font, glyph.glyphId, ox, oy, glyphMat, 0.0f, nullptr,
-                       false, false, style.fontSize, style.fontWidth,
+                       false, false, fontSize, style.fontWidth,
                        drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
             if (fakeBoldStroke > 0.0f) {
                 blendGlyph(font, glyph.glyphId, ox, oy, glyphMat, fakeBoldStroke, nullptr,
-                           false, false, style.fontSize, style.fontWidth,
+                           false, false, fontSize, style.fontWidth,
                            drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
             }
         } else {
@@ -174,7 +177,7 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
             float totalStroke = drawStyle.strokeWidth;
             if (fakeBoldStroke > 0.0f) totalStroke += fakeBoldStroke;
             blendGlyph(font, glyph.glyphId, ox, oy, glyphMat, totalStroke, &drawStyle,
-                       false, false, style.fontSize, style.fontWidth,
+                       false, false, fontSize, style.fontWidth,
                        drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
         }
     }

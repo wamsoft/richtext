@@ -3,6 +3,8 @@
 
 #include <vector>
 
+#include "richtext/TextStyle.hpp"
+#include "richtext/vertical/InlineAnnotation.hpp"
 #include "richtext/vertical/LineItem.hpp"
 #include "richtext/vertical/VerticalShaper.hpp"
 
@@ -45,12 +47,21 @@ struct VerticalSpacingOptions {
  * 末尾には段落終端（無限に伸びる Glue ＋ 強制ブレークの Penalty）を付ける。
  *
  * @param shaped シェイピング結果
- * @param em フォントサイズ（ピクセル）
+ * @param style 本文のスタイル（ルビ・縦中横・割注のシェイピングにも使う）
+ * @param annotations インライン注記（本文の文字位置を指す。空でよい）
  * @param opts 組版オプション
  */
 std::vector<LineItem> buildLineItems(const VerticalShaper::Result& shaped,
-                                     float em,
+                                     const TextStyle& style,
+                                     const std::vector<InlineAnnotation>& annotations,
                                      const VerticalSpacingOptions& opts);
+
+/// 注記なしの簡易版
+inline std::vector<LineItem> buildLineItems(const VerticalShaper::Result& shaped,
+                                            const TextStyle& style,
+                                            const VerticalSpacingOptions& opts) {
+    return buildLineItems(shaped, style, {}, opts);
+}
 
 } // namespace richtext::vertical
 

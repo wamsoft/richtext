@@ -107,6 +107,7 @@ VerticalShaper::Result VerticalShaper::shape(const std::u16string& text,
     if (text.empty() || !style.fontCollection) {
         return result;
     }
+    result.sourceText = text;
 
     const float size = style.fontSize;
     const float scaleX = (style.scaleX > 0.0f) ? style.scaleX : 1.0f;

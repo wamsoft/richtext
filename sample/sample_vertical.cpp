@@ -1,10 +1,12 @@
 /**
  * sample_vertical.cpp
  *
- * 縦組みの動作確認サンプル（Phase 1 / Phase 2）
+ * 縦組みの動作確認サンプル
  *
- * 縦 1 行のベタ組み・和文正立／欧文横倒しの混在（Phase 1）と、
- * JLReq の約物の詰め・禁則・行分割・両端揃え・ぶら下げ（Phase 2）を確認する。
+ *  - 縦 1 行のベタ組み・和文正立／欧文横倒しの混在（Phase 1）
+ *  - JLReq の約物の詰め・禁則・行分割・両端揃え・ぶら下げ（Phase 2）
+ *  - ルビ・縦中横・圏点・割注・字取り（Phase 3）
+ *
  * data/ 以下の Noto フォントを使用し、output_vertical.bmp を出力する。
  *
  * ※ リポジトリルートから実行すること（フォントを ./data/ から読む）
@@ -131,7 +133,7 @@ int main() {
     printf("=== richtext Vertical Sample ===\n\n");
 
     const int WIDTH  = 2800;
-    const int HEIGHT = 960;
+    const int HEIGHT = 1520;
     std::vector<uint32_t> buffer(static_cast<size_t>(WIDTH) * HEIGHT, 0xFFFFFFFF);
 
     //--------------------------------------------------------------------------
@@ -385,9 +387,80 @@ int main() {
     }
 
     //--------------------------------------------------------------------------
-    // 6. 出力
+    // 6. インライン要素（ルビ・縦中横・圏点・割注・字取り）
     //--------------------------------------------------------------------------
-    printf("\n5. Saving...\n");
+    printf("\n5. Inline annotations...\n");
+
+    {
+        using namespace richtext::vertical;
+
+        // 本文を組み立てながら注記の位置を拾う
+        struct Builder {
+            std::u16string text;
+            std::vector<InlineAnnotation> anns;
+            size_t add(const char* utf8) {
+                const size_t start = text.size();
+                text += utf8ToUtf16(utf8);
+                return start;
+            }
+        } b;
+
+        size_t p;
+
+        p = b.add(u8"東京特許許可局");
+        b.anns.push_back(InlineAnnotation::ruby(
+            p, b.text.size(), utf8ToUtf16(u8"とうきょうとっきょきょかきょく")));
+        b.add(u8"の");
+
+        p = b.add(u8"日本語");
+        b.anns.push_back(InlineAnnotation::ruby(
+            p, b.text.size(), utf8ToUtf16(u8"に|ほん|ご"), RubyMode::Mono));
+        b.add(u8"は、昭和");
+
+        p = b.add(u8"25");
+        b.anns.push_back(InlineAnnotation::tateChuYoko(p, b.text.size()));
+        b.add(u8"年から");
+
+        p = b.add(u8"強調");
+        b.anns.push_back(InlineAnnotation::emphasis(p, b.text.size()));
+        b.add(u8"されている");
+
+        p = b.add(u8"（割注はこのように行内へ二行で組む）");
+        b.anns.push_back(InlineAnnotation::warichu(p, b.text.size(), u""));
+        b.add(u8"。");
+
+        p = b.add(u8"名前");
+        b.anns.push_back(InlineAnnotation::jidori(p, b.text.size(), 4.0f));
+        b.add(u8"は字取りで四文字ぶんに揃う。");
+
+        VerticalLayoutOptions opts;
+        opts.lineGap = 24.0f;   // ルビ・圏点が入る分だけ行送りを広げる
+
+        VerticalParagraphLayout para;
+        para.layout(b.text, b.anns, style, 460.0f, opts);
+
+        const float annTop = 1010.0f;
+        float annX = WIDTH - 120.0f;
+
+        const float blockWidth = para.getTotalWidth();
+        renderer.drawRect(annX - blockWidth + para.getLineAdvance() * 0.5f, annTop,
+                          blockWidth, 460.0f, 0x00000000, 0xFFDDDDDD, 1.0f);
+        renderer.drawVerticalParagraphLayout(para, annX, annTop, black);
+        renderer.drawText(utf8ToUtf16("ruby / tate-chu-yoko / emphasis / warichu / jidori"),
+                          annX - blockWidth, annTop - 24.0f, smallStyle, gray);
+
+        float maxRight = 0.0f;
+        for (const auto& ln : para.getLines()) {
+            maxRight = std::max(maxRight, ln.extentRight);
+        }
+        printf("   annotations=%zu lines=%zu maxExtentRight=%.1f (body half=%.1f)\n",
+               b.anns.size(), para.getLineCount(), maxRight, style.fontSize * 0.5f);
+    }
+
+    //--------------------------------------------------------------------------
+    // 7. 出力
+    //--------------------------------------------------------------------------
+    printf("\n6. Saving...\n");
     saveBMP("output_vertical.bmp", buffer.data(), WIDTH, HEIGHT);
 
     printf("\nDone.\n");

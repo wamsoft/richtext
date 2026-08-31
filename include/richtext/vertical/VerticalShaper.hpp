@@ -48,6 +48,8 @@ struct ShapedCluster {
 class VerticalShaper {
 public:
     struct Result {
+        /// シェイプした本文（クラスタの charStart/charEnd はこの中の位置）
+        std::u16string sourceText;
         std::vector<GlyphInfo> glyphs;
         std::vector<ShapedCluster> clusters;
         float advance = 0.0f;       ///< 行方向（v）の総送り

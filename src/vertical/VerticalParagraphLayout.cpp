@@ -14,7 +14,15 @@ namespace richtext::vertical {
 
 void VerticalParagraphLayout::layout(const std::u16string& text, const TextStyle& style,
                                      float lineLength, const VerticalLayoutOptions& opts) {
+    layout(text, {}, style, lineLength, opts);
+}
+
+void VerticalParagraphLayout::layout(const std::u16string& text,
+                                     const std::vector<InlineAnnotation>& annotations,
+                                     const TextStyle& style,
+                                     float lineLength, const VerticalLayoutOptions& opts) {
     text_ = text;
+    annotations_ = annotations;
     style_ = style;
     options_ = opts;
     lineLength_ = lineLength;
@@ -70,8 +78,21 @@ void VerticalParagraphLayout::layoutParagraph(const std::u16string& paragraph,
         spacing.letterSpacing = style_.letterSpacing;
     }
 
+    // この段落に掛かる注記だけを、段落内の位置へずらして渡す
+    std::vector<InlineAnnotation> paraAnnotations;
+    if (!annotations_.empty()) {
+        const size_t paraEnd = charOffset + paragraph.size();
+        for (const InlineAnnotation& ann : annotations_) {
+            if (ann.end <= charOffset || ann.start >= paraEnd) continue;
+            InlineAnnotation shifted = ann;
+            shifted.start = std::max(ann.start, charOffset) - charOffset;
+            shifted.end = std::min(ann.end, paraEnd) - charOffset;
+            paraAnnotations.push_back(std::move(shifted));
+        }
+    }
+
     const std::vector<LineItem> items =
-            buildLineItems(shaped, style_.fontSize, spacing);
+            buildLineItems(shaped, style_, paraAnnotations, spacing);
     const std::vector<BreakLine> breaks =
             LineBreaker::breakLines(items, lineLength_, options_.lineBreak);
 
@@ -105,19 +126,35 @@ void VerticalParagraphLayout::layoutParagraph(const std::u16string& paragraph,
             }
 
             const ShapedCluster& cluster = shaped.clusters[item.clusterIndex];
-            // クラスタはベタ組み位置で組んであるので、その差分だけずらす
-            const float delta = (v + item.glyphOffset) - cluster.origin;
-            for (uint32_t g = 0; g < cluster.glyphCount; ++g) {
-                GlyphInfo glyph = shaped.glyphs[cluster.glyphStart + g];
-                glyph.y += delta;
+
+            if (!item.ownGlyphs) {
+                // クラスタはベタ組み位置で組んであるので、その差分だけずらす
+                const float delta = (v + item.glyphOffset) - cluster.origin;
+                for (uint32_t g = 0; g < cluster.glyphCount; ++g) {
+                    GlyphInfo glyph = shaped.glyphs[cluster.glyphStart + g];
+                    glyph.y += delta;
+                    glyph.charIndex += charOffset;
+                    line.glyphs.push_back(glyph);
+                }
+                if (!cluster.upright) {
+                    // 横倒しラン（欧文）は 1em より広く／狭くなりうる
+                    line.extentLeft = std::min(line.extentLeft, shaped.extentLeft);
+                    line.extentRight = std::max(line.extentRight, shaped.extentRight);
+                }
+            }
+
+            // 合成 Box の本体（縦中横・割注）と、付随グリフ（ルビ・圏点）。
+            // どちらも Box の先頭からの相対座標で入っている。
+            for (GlyphInfo glyph : item.glyphs) {
+                glyph.y += v;
                 glyph.charIndex += charOffset;
                 line.glyphs.push_back(glyph);
             }
-
-            if (!cluster.upright) {
-                // 横倒しラン（欧文）は 1em より広く／狭くなりうる
-                line.extentLeft = std::min(line.extentLeft, shaped.extentLeft);
-                line.extentRight = std::max(line.extentRight, shaped.extentRight);
+            if (item.extentLeft != 0.0f) {
+                line.extentLeft = std::min(line.extentLeft, item.extentLeft);
+            }
+            if (item.extentRight != 0.0f) {
+                line.extentRight = std::max(line.extentRight, item.extentRight);
             }
 
             line.charEnd = charOffset + cluster.charEnd;
