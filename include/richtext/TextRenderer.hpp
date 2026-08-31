@@ -14,6 +14,9 @@
 #include "richtext/TextLayout.hpp"
 #include "richtext/ParagraphLayout.hpp"
 #include "richtext/StyledLayout.hpp"
+#include "richtext/vertical/VerticalLayout.hpp"
+#include "richtext/vertical/VerticalParagraphLayout.hpp"
+#include "richtext/vertical/BlockLayout.hpp"
 
 namespace richtext {
 
@@ -148,6 +151,109 @@ public:
                      const Appearance& appearance,
                      int maxChars = -1);
     
+    // ------------------------------------------------------------------
+    // 縦組み（Phase 1: 1 行のみ）
+    // ------------------------------------------------------------------
+
+    /**
+     * 縦組み 1 行の描画
+     * @param text UTF-16 テキスト（改行は含めない）
+     * @param x 縦ベースライン（列の中心線）のX座標
+     * @param y 行頭のY座標
+     * @param style テキストスタイル
+     * @param appearance 描画外観
+     * @param orientation 正立／横倒しの指定
+     * @return 描画領域
+     */
+    RectF drawVerticalText(const std::u16string& text,
+                           float x, float y,
+                           const TextStyle& style,
+                           const Appearance& appearance,
+                           vertical::TextOrientation orientation
+                               = vertical::TextOrientation::Mixed);
+
+    /**
+     * レイアウト済み縦組み 1 行の描画
+     * @param layout VerticalLayout
+     * @param x 縦ベースライン（列の中心線）のX座標
+     * @param y 行頭のY座標
+     * @param appearance 描画外観
+     * @param maxChars 描画する文字数上限（-1 = 全て）
+     * @return 描画領域
+     */
+    RectF drawVerticalLayout(const vertical::VerticalLayout& layout,
+                             float x, float y,
+                             const Appearance& appearance,
+                             int maxChars = -1);
+
+    /**
+     * レイアウト済み縦組み段落の描画
+     * @param para VerticalParagraphLayout
+     * @param originX 1 列目の縦ベースライン（列の中心線）のX座標
+     * @param originY 行頭のY座標
+     * @param appearance 描画外観
+     * @param maxChars 描画する文字数上限（-1 = 全て）
+     * @return 描画領域
+     */
+    RectF drawVerticalParagraphLayout(const vertical::VerticalParagraphLayout& para,
+                                      float originX, float originY,
+                                      const Appearance& appearance,
+                                      int maxChars = -1);
+
+    /**
+     * 縦組み段落の描画
+     * @param text UTF-16 テキスト（改行を含んでよい）
+     * @param originX 1 列目の縦ベースライン（列の中心線）のX座標
+     * @param originY 行頭のY座標
+     * @param lineLength 1 行の長さ（列の長さ）
+     * @param style テキストスタイル
+     * @param appearance 描画外観
+     * @param opts 縦組みオプション
+     * @return 描画領域
+     */
+    RectF drawVerticalParagraph(const std::u16string& text,
+                                float originX, float originY,
+                                float lineLength,
+                                const TextStyle& style,
+                                const Appearance& appearance,
+                                const vertical::VerticalLayoutOptions& opts = {});
+
+    /**
+     * 縦組み段落の描画（インライン注記あり）
+     * @param annotations ルビ・縦中横・圏点・割注・字取り
+     */
+    RectF drawVerticalParagraph(const std::u16string& text,
+                                const std::vector<vertical::InlineAnnotation>& annotations,
+                                float originX, float originY,
+                                float lineLength,
+                                const TextStyle& style,
+                                const Appearance& appearance,
+                                const vertical::VerticalLayoutOptions& opts = {});
+
+    /**
+     * 流し込み済みブロックの描画（全コンテナ）
+     * @param block BlockLayout
+     * @param appearance 描画外観
+     * @param maxChars 描画する文字数上限（-1 = 全て。流し込み順に数える）
+     * @return 描画領域
+     */
+    RectF drawBlockLayout(const vertical::BlockLayout& block,
+                          const Appearance& appearance,
+                          int maxChars = -1);
+
+    /**
+     * 流し込み済みブロックの描画（コンテナ 1 つ分＝1 ページ）
+     * @param block BlockLayout
+     * @param containerIndex コンテナ番号
+     * @param offsetX,offsetY コンテナ座標に足すオフセット
+     * @param appearance 描画外観
+     * @return 描画領域
+     */
+    RectF drawBlockContainer(const vertical::BlockLayout& block,
+                             size_t containerIndex,
+                             float offsetX, float offsetY,
+                             const Appearance& appearance);
+
     /**
      * パラグラフレイアウト済みの描画（単一スタイル）
      * @param para ParagraphLayout（事前計算済み）

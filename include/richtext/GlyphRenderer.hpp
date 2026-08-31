@@ -66,6 +66,23 @@ public:
                       float x, float y,
                       const Appearance& appearance);
 
+    /**
+     * グリフ列を描画
+     *
+     * GlyphInfo の x/y は基準点からの相対座標として扱う。横組みでは
+     * (x, y) = 行頭・ベースライン、縦組みでは (x, y) = 縦ベースライン・行頭。
+     *
+     * @param glyphs グリフ列
+     * @param x 基準点X
+     * @param y 基準点Y
+     * @param style テキストスタイル
+     * @param appearance 描画外観
+     */
+    void renderGlyphs(const std::vector<GlyphInfo>& glyphs,
+                      float x, float y,
+                      const TextStyle& style,
+                      const Appearance& appearance);
+
     // ------------------------------------------------------------------
     // キャッシュ制御
     // ------------------------------------------------------------------

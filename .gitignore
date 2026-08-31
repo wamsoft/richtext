@@ -4,5 +4,6 @@ build
 .venv
 output*.bmp
 output*.png
+output*.pdf
 data/*.ttf
 data/*.otf

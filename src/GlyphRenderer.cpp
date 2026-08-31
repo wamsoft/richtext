@@ -11,6 +11,8 @@
 
 #include "richtext/GlyphRenderer.hpp"
 
+#include "richtext/GlyphTransform.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>  // std::memcpy (MSVC は他ヘッダ経由で見えるが GCC/libstdc++ では明示が必要)
@@ -64,6 +66,9 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
 
     const FontFace* font = glyph.font;
 
+    // ルビ・圏点・割注のようにグリフ単位でサイズが違う場合は GlyphInfo 側を優先する
+    const float fontSize = glyphFontSize(glyph, style);
+
     // フォント幅の処理: wdth 軸 + フェイク水平スケール
     float fakeScaleX = 1.0f;
     if (style.fontWidth != 100.0f) {
@@ -85,11 +90,11 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
         // ビットマップ描画（絵文字の下端をベースラインに合わせる）
         if (useCache_) {
             BitmapCacheKey key{reinterpret_cast<uintptr_t>(font), glyph.glyphId,
-                               static_cast<uint32_t>(style.fontSize * 64.0f + 0.5f)};
+                               static_cast<uint32_t>(fontSize * 64.0f + 0.5f)};
             auto it = bitmapCache_.find(key);
             if (it == bitmapCache_.end()) {
                 GlyphBitmap bitmap;
-                if (font->getGlyphBitmap(glyph.glyphId, style.fontSize, bitmap)) {
+                if (font->getGlyphBitmap(glyph.glyphId, fontSize, bitmap)) {
                     size_t byteSize = bitmap.data.size();
                     bitmapCache_.emplace(key, std::move(bitmap));
                     cacheUsedBytes_ += byteSize;
@@ -99,14 +104,14 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
             }
             if (it != bitmapCache_.end()) {
                 const GlyphBitmap& bitmap = it->second;
-                float scale = (bitmap.strikeHeight > 0) ? (style.fontSize / bitmap.strikeHeight) : 1.0f;
+                float scale = (bitmap.strikeHeight > 0) ? (fontSize / bitmap.strikeHeight) : 1.0f;
                 renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
                              glyphY - bitmap.bearingY * scale, scale);
             }
         } else {
             GlyphBitmap bitmap;
-            if (font->getGlyphBitmap(glyph.glyphId, style.fontSize, bitmap)) {
-                float scale = (bitmap.strikeHeight > 0) ? (style.fontSize / bitmap.strikeHeight) : 1.0f;
+            if (font->getGlyphBitmap(glyph.glyphId, fontSize, bitmap)) {
+                float scale = (bitmap.strikeHeight > 0) ? (fontSize / bitmap.strikeHeight) : 1.0f;
                 renderBitmap(bitmap, glyphX + bitmap.bearingX * scale,
                              glyphY - bitmap.bearingY * scale, scale);
             }
@@ -114,26 +119,11 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
         return;
     }
 
-    // フェイクイタリック: シアー係数（Android と同じ -0.25 ≒ 14度）
-    float skewX = 0.0f;
-    minikin::FontFakery fakery = glyph.fakery;
-    if (fakery.isFakeItalic()) {
-        skewX = -0.25f;
-    }
-
     // フェイクボールド: フォントサイズの 1/24 のストローク幅で太字をシミュレート
-    float fakeBoldStroke = 0.0f;
-    if (fakery.isFakeBold()) {
-        fakeBoldStroke = style.fontSize / 24.0f;
-    }
+    const float fakeBoldStroke = fakeBoldStrokeWidth(glyph, fontSize);
 
-    // グリフ固有の変形（ベースライン原点・y-down）
-    //   フェイク幅は X スケール、フェイクイタリックは X シアー
-    Matrix2D glyphMat;
-    glyphMat.e11 = fakeScaleX;
-    glyphMat.e12 = skewX;   // y-down 座標では pt.x += skewX * pt.y
-    glyphMat.e21 = 0.0f;
-    glyphMat.e22 = 1.0f;
+    // グリフ固有の変形（フェイク幅・斜体・スケール・回転）。PDF 出力と共有する
+    const Matrix2D glyphMat = makeGlyphMatrix(glyph, fakeScaleX);
 
     // 各 DrawStyle を描画
     for (const auto& drawStyle : appearance.getStyles()) {
@@ -143,11 +133,11 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
         if (drawStyle.type == DrawStyle::Type::Fill) {
             // 塗り（フェイクボールドは同色の縁取りを重ねて太らせる）
             blendGlyph(font, glyph.glyphId, ox, oy, glyphMat, 0.0f, nullptr,
-                       false, false, style.fontSize, style.fontWidth,
+                       false, false, fontSize, style.fontWidth,
                        drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
             if (fakeBoldStroke > 0.0f) {
                 blendGlyph(font, glyph.glyphId, ox, oy, glyphMat, fakeBoldStroke, nullptr,
-                           false, false, style.fontSize, style.fontWidth,
+                           false, false, fontSize, style.fontWidth,
                            drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
             }
         } else {
@@ -155,7 +145,7 @@ void GlyphRenderer::renderGlyph(const GlyphInfo& glyph,
             float totalStroke = drawStyle.strokeWidth;
             if (fakeBoldStroke > 0.0f) totalStroke += fakeBoldStroke;
             blendGlyph(font, glyph.glyphId, ox, oy, glyphMat, totalStroke, &drawStyle,
-                       false, false, style.fontSize, style.fontWidth,
+                       false, false, fontSize, style.fontWidth,
                        drawStyle.r, drawStyle.g, drawStyle.b, drawStyle.a);
         }
     }
@@ -286,14 +276,19 @@ void GlyphRenderer::blendGlyph(const FontFace* font, uint32_t glyphId,
                       originX, originY, r, g, b, a);
 }
 
+void GlyphRenderer::renderGlyphs(const std::vector<GlyphInfo>& glyphs,
+                                 float x, float y,
+                                 const TextStyle& style,
+                                 const Appearance& appearance) {
+    for (const auto& glyph : glyphs) {
+        renderGlyph(glyph, x, y, style, appearance);
+    }
+}
+
 void GlyphRenderer::renderLayout(const TextLayout& layout,
                                  float x, float y,
                                  const Appearance& appearance) {
-    const TextStyle& style = layout.getStyle();
-
-    for (const auto& glyph : layout.getGlyphs()) {
-        renderGlyph(glyph, x, y, style, appearance);
-    }
+    renderGlyphs(layout.getGlyphs(), x, y, layout.getStyle(), appearance);
 }
 
 //------------------------------------------------------------------------------

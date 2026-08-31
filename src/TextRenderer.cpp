@@ -153,6 +153,245 @@ RectF TextRenderer::drawLayout(const TextLayout& layout,
                 bounds.right - bounds.left, bottom - top);
 }
 
+//------------------------------------------------------------------------------
+// 縦組み
+//------------------------------------------------------------------------------
+
+RectF TextRenderer::drawVerticalText(const std::u16string& text,
+                                     float x, float y,
+                                     const TextStyle& style,
+                                     const Appearance& appearance,
+                                     vertical::TextOrientation orientation) {
+    vertical::VerticalLayout layout;
+    layout.layout(text, style, orientation);
+
+    return drawVerticalLayout(layout, x, y, appearance);
+}
+
+RectF TextRenderer::drawVerticalLayout(const vertical::VerticalLayout& layout,
+                                       float x, float y,
+                                       const Appearance& appearance,
+                                       int maxChars) {
+    if (!glyphRenderer_) {
+        return RectF();
+    }
+
+    const auto& glyphs = layout.getGlyphs();
+    const TextStyle& style = layout.getStyle();
+
+    if (maxChars >= 0) {
+        // 論理順（charIndex 順）で先頭 maxChars 文字分のグリフのみ描画
+        std::vector<size_t> sorted;
+        sorted.reserve(glyphs.size());
+        for (const auto& g : glyphs) sorted.push_back(g.charIndex);
+        std::sort(sorted.begin(), sorted.end());
+        sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+        size_t threshold = (static_cast<size_t>(maxChars) < sorted.size())
+                           ? sorted[maxChars]
+                           : SIZE_MAX;
+        for (const auto& g : glyphs) {
+            if (g.charIndex < threshold) {
+                glyphRenderer_->renderGlyph(g, x, y, style, appearance);
+            }
+        }
+    } else {
+        glyphRenderer_->renderGlyphs(glyphs, x, y, style, appearance);
+    }
+
+    // 座標系は既に左上原点・y-down なのでそのまま矩形にする
+    return RectF(x + layout.getExtentLeft(), y,
+                 layout.getWidth(), layout.getLength());
+}
+
+RectF TextRenderer::drawVerticalParagraphLayout(const vertical::VerticalParagraphLayout& para,
+                                                float originX, float originY,
+                                                const Appearance& appearance,
+                                                int maxChars) {
+    if (!glyphRenderer_ || para.getLineCount() == 0) {
+        return RectF();
+    }
+
+    const TextStyle& style = para.getStyle();
+    int remaining = maxChars;
+
+    float minX = 0.0f, maxX = 0.0f, maxLen = 0.0f;
+    bool first = true;
+
+    for (size_t i = 0; i < para.getLineCount(); ++i) {
+        if (remaining == 0) break;
+
+        const auto& line = para.getLine(i);
+        const auto pos = para.getLinePosition(i, originX, originY);
+
+        if (remaining < 0) {
+            glyphRenderer_->renderGlyphs(line.glyphs, pos.x, pos.y, style, appearance);
+        } else {
+            // 論理順（charIndex 順）で先頭 remaining 文字分のみ描画
+            std::vector<size_t> sorted;
+            sorted.reserve(line.glyphs.size());
+            for (const auto& g : line.glyphs) sorted.push_back(g.charIndex);
+            std::sort(sorted.begin(), sorted.end());
+            sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+            size_t threshold = (static_cast<size_t>(remaining) < sorted.size())
+                               ? sorted[remaining]
+                               : SIZE_MAX;
+            for (const auto& g : line.glyphs) {
+                if (g.charIndex < threshold) {
+                    glyphRenderer_->renderGlyph(g, pos.x, pos.y, style, appearance);
+                }
+            }
+            remaining -= static_cast<int>(std::min(sorted.size(),
+                                                   static_cast<size_t>(remaining)));
+        }
+
+        const float left = pos.x + line.extentLeft;
+        const float right = pos.x + line.extentRight;
+        if (first) {
+            minX = left;
+            maxX = right;
+            first = false;
+        } else {
+            minX = std::min(minX, left);
+            maxX = std::max(maxX, right);
+        }
+        maxLen = std::max(maxLen, line.length);
+    }
+
+    if (first) return RectF();
+    return RectF(minX, originY, maxX - minX, maxLen);
+}
+
+RectF TextRenderer::drawVerticalParagraph(const std::u16string& text,
+                                          float originX, float originY,
+                                          float lineLength,
+                                          const TextStyle& style,
+                                          const Appearance& appearance,
+                                          const vertical::VerticalLayoutOptions& opts) {
+    vertical::VerticalParagraphLayout para;
+    para.layout(text, style, lineLength, opts);
+    return drawVerticalParagraphLayout(para, originX, originY, appearance);
+}
+
+RectF TextRenderer::drawVerticalParagraph(const std::u16string& text,
+                                          const std::vector<vertical::InlineAnnotation>& annotations,
+                                          float originX, float originY,
+                                          float lineLength,
+                                          const TextStyle& style,
+                                          const Appearance& appearance,
+                                          const vertical::VerticalLayoutOptions& opts) {
+    vertical::VerticalParagraphLayout para;
+    para.layout(text, annotations, style, lineLength, opts);
+    return drawVerticalParagraphLayout(para, originX, originY, appearance);
+}
+
+namespace {
+
+/// 1 行のうち先頭 maxChars 文字分だけ描く（-1 で全て）。描いた文字数を返す
+int renderLineChars(GlyphRenderer& renderer,
+                    const std::vector<GlyphInfo>& glyphs,
+                    float x, float y,
+                    const TextStyle& style,
+                    const Appearance& appearance,
+                    int maxChars) {
+    std::vector<size_t> sorted;
+    sorted.reserve(glyphs.size());
+    for (const auto& g : glyphs) sorted.push_back(g.charIndex);
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+
+    if (maxChars < 0) {
+        renderer.renderGlyphs(glyphs, x, y, style, appearance);
+        return static_cast<int>(sorted.size());
+    }
+
+    const size_t threshold = (static_cast<size_t>(maxChars) < sorted.size())
+                             ? sorted[maxChars]
+                             : SIZE_MAX;
+    for (const auto& g : glyphs) {
+        if (g.charIndex < threshold) {
+            renderer.renderGlyph(g, x, y, style, appearance);
+        }
+    }
+    return static_cast<int>(std::min(sorted.size(), static_cast<size_t>(maxChars)));
+}
+
+} // namespace
+
+RectF TextRenderer::drawBlockLayout(const vertical::BlockLayout& block,
+                                    const Appearance& appearance,
+                                    int maxChars) {
+    if (!glyphRenderer_ || block.getPlacedLineCount() == 0) {
+        return RectF();
+    }
+
+    int remaining = maxChars;
+    float minX = 0, minY = 0, maxX = 0, maxY = 0;
+    bool first = true;
+
+    for (const auto& pl : block.getPlacedLines()) {
+        if (remaining == 0) break;
+
+        const auto& line = block.getLine(pl);
+        const int drawn = renderLineChars(*glyphRenderer_, line.glyphs, pl.x, pl.y,
+                                          block.getStyle(pl), appearance, remaining);
+        if (remaining > 0) remaining -= drawn;
+
+        const float left = pl.x + line.extentLeft;
+        const float right = pl.x + line.extentRight;
+        if (first) {
+            minX = left; maxX = right;
+            minY = pl.y; maxY = pl.y + line.length;
+            first = false;
+        } else {
+            minX = std::min(minX, left);
+            maxX = std::max(maxX, right);
+            minY = std::min(minY, pl.y);
+            maxY = std::max(maxY, pl.y + line.length);
+        }
+    }
+
+    if (first) return RectF();
+    return RectF(minX, minY, maxX - minX, maxY - minY);
+}
+
+RectF TextRenderer::drawBlockContainer(const vertical::BlockLayout& block,
+                                       size_t containerIndex,
+                                       float offsetX, float offsetY,
+                                       const Appearance& appearance) {
+    if (!glyphRenderer_) {
+        return RectF();
+    }
+
+    size_t first = 0, count = 0;
+    block.getContainerLineRange(containerIndex, first, count);
+    if (count == 0) return RectF();
+
+    float minX = 0, minY = 0, maxX = 0, maxY = 0;
+    bool init = false;
+
+    for (size_t i = first; i < first + count; ++i) {
+        const auto& pl = block.getPlacedLine(i);
+        const auto& line = block.getLine(pl);
+        const float x = pl.x + offsetX;
+        const float y = pl.y + offsetY;
+        glyphRenderer_->renderGlyphs(line.glyphs, x, y, block.getStyle(pl), appearance);
+
+        const float left = x + line.extentLeft;
+        const float right = x + line.extentRight;
+        if (!init) {
+            minX = left; maxX = right;
+            minY = y; maxY = y + line.length;
+            init = true;
+        } else {
+            minX = std::min(minX, left);
+            maxX = std::max(maxX, right);
+            minY = std::min(minY, y);
+            maxY = std::max(maxY, y + line.length);
+        }
+    }
+    return RectF(minX, minY, maxX - minX, maxY - minY);
+}
+
 RectF TextRenderer::drawParagraphLayout(const ParagraphLayout& para,
                                          const RectF& rect,
                                          ParagraphLayout::HAlign hAlign,

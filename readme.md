@@ -16,6 +16,8 @@ minikin によるテキストレイアウト、glyphware（FreeType）による�
 - ルビ（振り仮名）
 - 逐次表示（文字送り）
 - GPU テクスチャアトラス
+- 縦組み（JLReq 水準。約物の詰め・禁則・追い込み／追い出し・ルビ・縦中横・圏点・割注・字取り・段組・ページ流し込み）
+- PDF 出力（同一の組版結果から画面と PDF を出す。任意ターゲット）
 
 ## ビルド
 
@@ -42,6 +44,19 @@ build/x64-windows/Release/sample_render.exe
 - `sample_render.exe` — 動作確認サンプル
 - `sample_sequential.exe` — 逐次表示サンプル
 - `sample_texture.exe` - テクスチャグリフ展開サンプル
+- `sample_vertical.exe` — 縦組みサンプル（ベタ組み・JLReq 組版・ルビ等）
+- `sample_vertical_page.exe` — 縦組みのブロック組版サンプル（段組・ページ流し込み）
+- `richtext_pdf` — PDF 出力（任意ターゲット。`-DRICHTEXT_PDF=ON`、単体ビルドでは既定 ON）
+- `sample_vertical_pdf.exe` — 同じ組版結果から画面と PDF を出すサンプル
+
+## ドキュメント
+
+| ファイル | 内容 |
+|---|---|
+| `設計.md` | クラス設計・詳細仕様（縦組みは 11 章、PDF は 12 章） |
+| `縦組み設計.md` | 縦組みの方針・判断の根拠・フェーズ計画 |
+| `タグ仕様.md` | インラインタグの仕様 |
+| `実装.md` | フェーズ別の実装進捗と積み残し |
 
 ## ライセンス
 
