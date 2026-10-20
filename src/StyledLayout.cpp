@@ -57,9 +57,8 @@ void StyledLayout::layout(const std::u16string& text,
     }
 
     // パラグラフレイアウト（行分割）
-    if (lineSpacing > 0.0f) {
-        para_.setLineSpacing(lineSpacing);
-    }
+    // 0 も設定する (使い回したときに前回の行間が残らないように)
+    para_.setLineSpacing(lineSpacing);
     if (!parsed_.styleRuns.empty()) {
         para_.layout(parsed_.plainText, maxWidth, parsed_.styleRuns);
     } else {

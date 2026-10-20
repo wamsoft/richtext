@@ -63,6 +63,15 @@ public:
     void setLabelResolver(LabelResolver cb) { labelResolver_ = std::move(cb); }
 
     /**
+     * 行分割戦略の設定（layout() 前に呼ぶ）
+     * 既定は ParagraphLayout と同じ HighQuality。
+     */
+    void setBreakStrategy(ParagraphLayout::BreakStrategy strategy) { para_.setBreakStrategy(strategy); }
+
+    /** 行分割戦略の取得 */
+    ParagraphLayout::BreakStrategy getBreakStrategy() const { return para_.getBreakStrategy(); }
+
+    /**
      * レイアウト実行
      * @param text スタイルタグ付きテキスト（UTF-16）
      * @param maxWidth 最大幅
