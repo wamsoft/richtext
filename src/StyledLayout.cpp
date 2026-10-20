@@ -25,6 +25,9 @@ void StyledLayout::layout(const std::u16string& text,
     resolvedKeyWaits_.clear();
     totalRenderDelay_ = 0;
     timingsResolved_ = false;
+    placements_.clear();
+    placementStyles_.clear();
+    bounds_ = Bounds();
 
     hAlign_ = hAlign;
     vAlign_ = vAlign;
@@ -44,6 +47,7 @@ void StyledLayout::layout(const std::u16string& text,
     auto ait = appearances.find("default");
     if (ait != appearances.end()) defaultAppearance = ait->second;
     if (defaultAppearance.isEmpty()) defaultAppearance = Appearance::defaultAppearance();
+    defaultAppearance_ = defaultAppearance;
 
     // タグ付きテキストを解析
     TagParser parser;
@@ -53,6 +57,13 @@ void StyledLayout::layout(const std::u16string& text,
     parsed_ = parser.parse(text, defaultStyle, defaultAppearance, styles, appearances);
 
     if (parsed_.plainText.empty()) {
+        return;
+    }
+
+    // 縦組み
+    if (isVertical()) {
+        layoutVertical(defaultStyle, lineSpacing);
+        valid_ = true;
         return;
     }
 
@@ -118,7 +129,233 @@ void StyledLayout::layout(const std::u16string& text,
     }
 
     totalCharCount_ = allCharIndices.size();
+    buildHorizontalPlacements();
     valid_ = true;
+}
+
+//------------------------------------------------------------------------------
+// 文字ごとの配置
+//------------------------------------------------------------------------------
+
+namespace {
+
+struct BoundsAccumulator {
+    bool valid = false;
+    float l = 0, t = 0, r = 0, b = 0;
+    void add(float left, float top, float right, float bottom) {
+        if (right < left) std::swap(left, right);
+        if (bottom < top) std::swap(top, bottom);
+        if (!valid) {
+            l = left; t = top; r = right; b = bottom;
+            valid = true;
+        } else {
+            l = std::min(l, left); t = std::min(t, top);
+            r = std::max(r, right); b = std::max(b, bottom);
+        }
+    }
+};
+
+} // namespace
+
+size_t StyledLayout::findSpan(size_t charIndex) const {
+    // ギャップ補填後の spans は重ならず昇順
+    size_t lo = 0, hi = parsed_.spans.size();
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        const auto& sp = parsed_.spans[mid];
+        if (charIndex < sp.start) hi = mid;
+        else if (charIndex >= sp.end) lo = mid + 1;
+        else return mid;
+    }
+    return SIZE_MAX;
+}
+
+void StyledLayout::buildHorizontalPlacements() {
+    BoundsAccumulator acc;
+
+    // 文字ごとの位置（ルビを置くため）
+    struct CharPos {
+        bool valid = false;
+        float left = 0, right = 0;
+        float baseY = 0;
+        float ascent = 0;       // TextLayout::getAscent()（負値）
+        size_t lineIdx = 0;
+        size_t spanIdx = SIZE_MAX;
+    };
+    std::vector<CharPos> charPos(parsed_.plainText.size());
+
+    for (const auto& ll : lineLayouts_) {
+        auto pos = para_.getLinePosition(ll.lineIdx, 0.0f, 0.0f,
+                                         maxWidth_, maxHeight_,
+                                         ParagraphLayout::HAlign::Left, vAlign_);
+        float startX = 0.0f;
+        switch (hAlign_) {
+        case ParagraphLayout::HAlign::Center: startX = (maxWidth_ - ll.totalWidth) / 2.0f; break;
+        case ParagraphLayout::HAlign::Right:  startX = maxWidth_ - ll.totalWidth; break;
+        default: break;
+        }
+
+        float curX = startX;
+        for (const auto& sl : ll.segments) {
+            float drawY = pos.y + sl.yOffset;
+            size_t styleIdx = placementStyles_.size();
+            placementStyles_.push_back(sl.layout.getStyle());
+
+            for (const auto& g : sl.layout.getGlyphs()) {
+                GlyphPlacement p;
+                p.glyph = g;
+                p.glyph.x = curX + g.x;
+                p.glyph.y = drawY + g.y;
+                p.charIndex = sl.segStart + g.charIndex;
+                p.glyph.charIndex = p.charIndex;
+                p.styleIndex = styleIdx;
+                p.spanIdx = sl.spanIdx;
+                p.kind = GlyphPlacement::Kind::Base;
+                placements_.push_back(p);
+
+                if (p.charIndex < charPos.size()) {
+                    CharPos& cp = charPos[p.charIndex];
+                    float l = curX + g.x, r = l + g.advance;
+                    if (!cp.valid) {
+                        cp.valid = true;
+                        cp.left = l; cp.right = r;
+                        cp.baseY = drawY;
+                        cp.ascent = sl.layout.getAscent();
+                        cp.lineIdx = ll.lineIdx;
+                        cp.spanIdx = sl.spanIdx;
+                    } else {
+                        cp.left = std::min(cp.left, l);
+                        cp.right = std::max(cp.right, r);
+                    }
+                }
+            }
+
+            auto b = sl.layout.getBounds();
+            acc.add(curX + b.left, drawY - b.top, curX + b.right, drawY - b.bottom);
+            curX += sl.measuredWidth;
+        }
+    }
+
+    // ルビ: <ruby> 区間ごとに 1 回だけ置く。区間が行をまたぐときは、
+    // 区間の先頭の文字がある行の部分の中央に置く
+    for (const auto& rb : parsed_.rubies) {
+        size_t first = SIZE_MAX;
+        for (size_t ci = rb.start; ci < rb.end && ci < charPos.size(); ++ci) {
+            if (charPos[ci].valid) { first = ci; break; }
+        }
+        if (first == SIZE_MAX || rb.text.empty()) continue;
+
+        const CharPos& fp = charPos[first];
+        float left = fp.left, right = fp.right, ascent = fp.ascent;
+        for (size_t ci = first + 1; ci < rb.end && ci < charPos.size(); ++ci) {
+            const CharPos& cp = charPos[ci];
+            if (!cp.valid || cp.lineIdx != fp.lineIdx) continue;
+            left = std::min(left, cp.left);
+            right = std::max(right, cp.right);
+            ascent = std::min(ascent, cp.ascent);
+        }
+
+        TextStyle rubyStyle = fp.spanIdx < parsed_.spans.size()
+            ? parsed_.spans[fp.spanIdx].style : placementStyles_.front();
+        rubyStyle.fontSize *= parserOptions_.rubyScale;
+        TextLayout rubyLayout;
+        rubyLayout.layout(rb.text, rubyStyle);
+
+        float rubyX = left + (right - left - rubyLayout.getWidth()) / 2.0f;
+        float rubyY = fp.baseY + ascent + rubyLayout.getDescent();
+        size_t styleIdx = placementStyles_.size();
+        placementStyles_.push_back(rubyStyle);
+
+        for (const auto& g : rubyLayout.getGlyphs()) {
+            GlyphPlacement p;
+            p.glyph = g;
+            p.glyph.x = rubyX + g.x;
+            p.glyph.y = rubyY + g.y;
+            p.charIndex = first;    // 親文字の先頭と一緒に出る
+            p.glyph.charIndex = first;
+            p.styleIndex = styleIdx;
+            p.spanIdx = fp.spanIdx;
+            p.kind = GlyphPlacement::Kind::Ruby;
+            placements_.push_back(p);
+        }
+        auto b = rubyLayout.getBounds();
+        acc.add(rubyX + b.left, rubyY - b.top, rubyX + b.right, rubyY - b.bottom);
+    }
+
+    if (acc.valid) bounds_ = { acc.l, acc.t, acc.r - acc.l, acc.b - acc.t };
+}
+
+void StyledLayout::layoutVertical(const TextStyle& defaultStyle, float lineSpacing) {
+    // ルビ・縦中横を注記にする
+    std::vector<vertical::InlineAnnotation> annotations;
+    for (const auto& rb : parsed_.rubies) {
+        if (rb.text.empty() || rb.end <= rb.start) continue;
+        annotations.push_back(vertical::InlineAnnotation::ruby(
+            rb.start, rb.end, rb.text, vertical::RubyMode::Group, parserOptions_.rubyScale));
+    }
+    for (const auto& r : parsed_.tateChuYoko) {
+        if (r.end <= r.start) continue;
+        annotations.push_back(vertical::InlineAnnotation::tateChuYoko(r.start, r.end));
+    }
+    std::sort(annotations.begin(), annotations.end(),
+              [](const vertical::InlineAnnotation& a, const vertical::InlineAnnotation& b) {
+                  return a.start < b.start;
+              });
+
+    vertical::VerticalLayoutOptions opts;
+    opts.writingMode = (writingMode_ == WritingMode::VerticalLr)
+        ? vertical::WritingMode::VerticalLr : vertical::WritingMode::VerticalRl;
+    opts.lineGap = lineSpacing;
+    opts.lineBreak.strategy = (para_.getBreakStrategy() == ParagraphLayout::BreakStrategy::Greedy)
+        ? vertical::LineBreakStrategy::Greedy : vertical::LineBreakStrategy::KnuthPlass;
+
+    const float lineLength = maxHeight_ > 0.0f ? maxHeight_ : 100000.0f;
+    vpara_.layout(parsed_.plainText, annotations, defaultStyle, lineLength, opts);
+
+    placementStyles_.push_back(vpara_.getStyle());
+
+    // 1 列目の縦ベースライン: vertical-rl は枠の右端から、vertical-lr は左端から
+    const float em = defaultStyle.fontSize;
+    const size_t n = vpara_.getLineCount();
+    float blockWidth = maxWidth_ > 0.0f
+        ? maxWidth_
+        : (n > 0 ? vpara_.getLineAdvance() * static_cast<float>(n) - lineSpacing : em);
+    const float originX = (opts.writingMode == vertical::WritingMode::VerticalRl)
+        ? blockWidth - em / 2.0f : em / 2.0f;
+
+    BoundsAccumulator acc;
+    std::set<size_t> chars;
+    for (size_t i = 0; i < n; ++i) {
+        const auto& line = vpara_.getLine(i);
+        const auto pos = vpara_.getLinePosition(i, originX, 0.0f);
+
+        // 列の中の揃え（hAlign: Left=行頭 / Center / Right=行末）
+        float off = 0.0f;
+        if (maxHeight_ > 0.0f) {
+            switch (hAlign_) {
+            case ParagraphLayout::HAlign::Center: off = (lineLength - line.length) / 2.0f; break;
+            case ParagraphLayout::HAlign::Right:  off = lineLength - line.length; break;
+            default: break;
+            }
+        }
+
+        for (const auto& g : line.glyphs) {
+            GlyphPlacement p;
+            p.glyph = g;
+            p.glyph.x = pos.x + g.x;
+            p.glyph.y = pos.y + off + g.y;
+            p.charIndex = g.charIndex;
+            p.styleIndex = 0;
+            p.spanIdx = findSpan(g.charIndex);
+            p.kind = (g.fontSize > 0.0f) ? GlyphPlacement::Kind::Annotation : GlyphPlacement::Kind::Base;
+            if (p.kind == GlyphPlacement::Kind::Base) chars.insert(g.charIndex);
+            placements_.push_back(p);
+        }
+        acc.add(pos.x + line.extentLeft, pos.y + off, pos.x + line.extentRight, pos.y + off + line.length);
+    }
+
+    totalCharCount_ = chars.size();
+    if (acc.valid) bounds_ = { acc.l, acc.t, acc.r - acc.l, acc.b - acc.t };
 }
 
 //------------------------------------------------------------------------------

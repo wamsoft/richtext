@@ -63,6 +63,21 @@ struct TagParser::ParseState {
 
     // --- グラフィック ---
     std::vector<GraphInfo> graphics;
+
+    // --- ルビ・縦中横（タグ単位の区間） ---
+    std::vector<TagParser::RubyInfo> rubies;
+    std::vector<TagParser::RangeInfo> tateChuYoko;
+
+    // タグを閉じたときに区間を記録する
+    void closeRange(const StyleContext& ctx) {
+        size_t end = plainText.size();
+        if (end <= ctx.startPos) return;
+        if (ctx.tagName == "ruby" && ctx.hasRuby && !ctx.rubyText.empty()) {
+            rubies.push_back({ ctx.startPos, end, ctx.rubyText });
+        } else if (ctx.tagName == "tcy") {
+            tateChuYoko.push_back({ ctx.startPos, end });
+        }
+    }
 };
 
 //------------------------------------------------------------------------------
@@ -301,6 +316,7 @@ TagParser::ParseResult TagParser::parse(
         if (span.end > span.start) {
             state.spans.push_back(span);
         }
+        state.closeRange(ctx);
 
         if (options_.strictMode) {
             state.errors.push_back("Unclosed tag: <" + ctx.tagName + ">");
@@ -373,6 +389,8 @@ TagParser::ParseResult TagParser::parse(
     result.timings = std::move(state.timings);
     result.links = std::move(state.links);
     result.graphics = std::move(state.graphics);
+    result.rubies = std::move(state.rubies);
+    result.tateChuYoko = std::move(state.tateChuYoko);
 
     // StyleRun を構築
     result.styleRuns = buildStyleRuns(result);
@@ -481,6 +499,9 @@ bool TagParser::parseTag(
         if (it != attrs.end()) {
             rubyText = utf8ToUtf16(it->second);
         }
+    } else if (tagName == "tcy") {
+        // 縦中横（縦組みで、範囲の文字を横に並べて 1 文字分に収める）。
+        // スタイルは変えない container タグ
     } else if (tagName == "style") {
         auto it = attrs.find("name");
         if (it != attrs.end()) {
@@ -720,8 +741,11 @@ bool TagParser::parseCloseTag(const std::u16string& text, size_t& pos, ParseStat
         state.currentLinkIndex = -1;
     }
 
-    // スパンを追加（link タグはスタイル変更しないのでスパン不要）
-    if (top.tagName != "link") {
+    // ルビ・縦中横の区間を記録
+    state.closeRange(top);
+
+    // スパンを追加（link / tcy タグはスタイル変更しないのでスパン不要）
+    if (top.tagName != "link" && top.tagName != "tcy") {
         TextSpan span;
         span.start = top.startPos;
         span.end = state.plainText.size();

@@ -8,9 +8,11 @@
 #include "richtext/FontFace.hpp"
 #include "richtext/GlyphRenderer.hpp"
 #include "richtext/TextRenderer.hpp"
+#include "richtext/GlyphTransform.hpp"
 
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 
 namespace richtext {
 
@@ -48,16 +50,19 @@ void TextureAtlas::clear() {
 
 TextureAtlas::GlyphKey TextureAtlas::makeKey(const GlyphInfo& glyph,
                                               const TextStyle& style,
-                                              const Appearance& appearance) const {
+                                              const Appearance& appearance) {
     GlyphKey key;
     key.fontPtr = reinterpret_cast<uintptr_t>(glyph.font);
     key.glyphId = glyph.glyphId;
-    key.fontSizeQ = static_cast<uint32_t>(style.fontSize * 64.0f + 0.5f);
+    key.fontSizeQ = static_cast<uint32_t>(glyphFontSize(glyph, style) * 64.0f + 0.5f);
     key.fontWidthQ = static_cast<uint32_t>(style.fontWidth * 64.0f + 0.5f);
     // FontFakery::isFakeBold/isFakeItalic は非 const なのでコピーを使う
     minikin::FontFakery fakery = glyph.fakery;
     key.fakeryFlags = (fakery.isFakeBold() ? 1 : 0)
                     | (fakery.isFakeItalic() ? 2 : 0);
+    key.rotationQ = static_cast<int32_t>(std::lround(glyph.rotation * 4096.0f));
+    key.scaleXQ = static_cast<int32_t>(std::lround(glyph.scaleX * 4096.0f));
+    key.scaleYQ = static_cast<int32_t>(std::lround(glyph.scaleY * 4096.0f));
     key.appearanceHash = appearance.hash();
     return key;
 }
@@ -82,7 +87,7 @@ bool TextureAtlas::allocateRect(int width, int height, int& outX, int& outY) {
     currentY_ += shelfHeight_;
     shelfHeight_ = 0;
 
-    if (currentY_ + h > bufferHeight_) {
+    if (currentY_ + h > bufferHeight_ || w > bufferWidth_) {
         return false;  // テクスチャ溢れ
     }
 
@@ -90,6 +95,75 @@ bool TextureAtlas::allocateRect(int width, int height, int& outX, int& outY) {
     outY = currentY_;
     currentX_ += w;
     shelfHeight_ = h;
+    return true;
+}
+
+bool TextureAtlas::rasterizeGlyphCell(const GlyphInfo& glyph,
+                                      const TextStyle& style,
+                                      const Appearance& appearance,
+                                      GlyphCell& out) {
+    if (!glyph.font) return false;
+
+    // Appearance の装飾分（ストローク幅、影オフセット）
+    float maxStroke = 0;
+    float maxOffset = 0;
+    for (const auto& ds : appearance.getStyles()) {
+        if (ds.type == DrawStyle::Type::Stroke) {
+            maxStroke = std::max(maxStroke, ds.strokeWidth);
+        }
+        maxOffset = std::max(maxOffset, std::max(std::abs(ds.offsetX), std::abs(ds.offsetY)));
+    }
+
+    // ペン位置を中心に、回転・倍率・斜体・縦組みのずれがあっても収まる大きさで描く
+    const float size = glyphFontSize(glyph, style);
+    const float scale = std::max(1.0f, std::max(std::abs(glyph.scaleX), std::abs(glyph.scaleY)));
+    const float extent = std::max(std::abs(glyph.advance), size) * scale * 1.6f;
+    const int half = static_cast<int>(std::ceil(extent + maxStroke + maxOffset)) + 4;
+    const int dim = half * 2;
+
+    std::vector<uint32_t> temp(static_cast<size_t>(dim) * dim, 0);
+    RenderTarget cell(temp.data(), dim, dim, dim);
+    GlyphRenderer renderer(cell);
+    renderer.setUseCache(false);
+    // renderGlyph は glyph.x / glyph.y を足すので、ペン位置が (half, half) に来るよう打ち消す
+    renderer.renderGlyph(glyph, half - glyph.x, half - glyph.y, style, appearance);
+
+    // インクのある範囲
+    int minX = dim, minY = dim, maxX = -1, maxY = -1;
+    for (int yy = 0; yy < dim; ++yy) {
+        const uint32_t* row = &temp[static_cast<size_t>(yy) * dim];
+        for (int xx = 0; xx < dim; ++xx) {
+            if (row[xx] >> 24) {
+                if (xx < minX) minX = xx;
+                if (xx > maxX) maxX = xx;
+                if (yy < minY) minY = yy;
+                if (yy > maxY) maxY = yy;
+            }
+        }
+    }
+    if (maxX < 0) {
+        // インクが無い（空白など）
+        out.width = out.height = 1;
+        out.offsetX = out.offsetY = 0;
+        out.pixels.assign(1, 0);
+        return true;
+    }
+    // 拡大縮小して貼ったときに隣と混ざらないよう 1px の透明な縁を残す
+    minX = std::max(0, minX - 1);
+    minY = std::max(0, minY - 1);
+    maxX = std::min(dim - 1, maxX + 1);
+    maxY = std::min(dim - 1, maxY + 1);
+
+    out.width = maxX - minX + 1;
+    out.height = maxY - minY + 1;
+    out.offsetX = static_cast<float>(minX - half);
+    out.offsetY = static_cast<float>(minY - half);
+    out.pixels.resize(static_cast<size_t>(out.width) * out.height);
+    for (int yy = 0; yy < out.height; ++yy) {
+        std::memcpy(&out.pixels[static_cast<size_t>(yy) * out.width],
+                    &temp[static_cast<size_t>(minY + yy) * dim + minX],
+                    out.width * sizeof(uint32_t));
+    }
     return true;
 }
 
@@ -101,65 +175,37 @@ bool TextureAtlas::renderGlyphToAtlas(const GlyphInfo& glyph,
     auto key = makeKey(glyph, style, appearance);
     if (glyphMap_.count(key)) return true;  // 既にアトラスにある
 
-    // グリフのバウンディングサイズを推定
-    // Appearance の装飾分（ストローク幅、影オフセット）を考慮
-    float maxStroke = 0;
-    float maxOffsetX = 0, maxOffsetY = 0;
-    for (const auto& ds : appearance.getStyles()) {
-        if (ds.type == DrawStyle::Type::Stroke) {
-            maxStroke = std::max(maxStroke, ds.strokeWidth);
-        }
-        maxOffsetX = std::max(maxOffsetX, std::abs(ds.offsetX));
-        maxOffsetY = std::max(maxOffsetY, std::abs(ds.offsetY));
-    }
-
-    float margin = maxStroke + 2.0f;
-    int cellWidth = static_cast<int>(glyph.advance + margin * 2 + maxOffsetX * 2 + 1);
-    int cellHeight = static_cast<int>(style.fontSize * 1.5f + margin * 2 + maxOffsetY * 2 + 1);
+    GlyphCell cell;
+    if (!rasterizeGlyphCell(glyph, style, appearance, cell)) return false;
 
     // 配置位置を確保
     int atlasX, atlasY;
-    if (!allocateRect(cellWidth, cellHeight, atlasX, atlasY)) {
+    if (!allocateRect(cell.width, cell.height, atlasX, atlasY)) {
         return false;  // テクスチャ溢れ
     }
 
-    // 一時バッファへグリフをレンダリング
-    std::vector<uint32_t> tempBuffer(static_cast<size_t>(cellWidth) * cellHeight, 0);
-    RenderTarget cell(tempBuffer.data(), cellWidth, cellHeight, cellWidth);
-
-    GlyphRenderer renderer(cell);
-    renderer.setUseCache(false);
-
-    // グリフの描画位置（セル内のベースライン位置）
-    float localX = margin + maxOffsetX - glyph.x;
-    float localY = margin + maxOffsetY + style.fontSize * 0.8f;
-
-    renderer.renderGlyph(glyph, localX, localY, style, appearance);
-
-    // tempBuffer → renderBuffer_ にコピー
-    for (int row = 0; row < cellHeight; ++row) {
+    // セル → renderBuffer_ にコピー
+    for (int row = 0; row < cell.height; ++row) {
         int dstY = atlasY + row;
         if (dstY >= bufferHeight_) break;
-        int srcOffset = row * cellWidth;
-        int dstOffset = dstY * bufferWidth_ + atlasX;
-        int copyWidth = std::min(cellWidth, bufferWidth_ - atlasX);
-        std::memcpy(&renderBuffer_[dstOffset], &tempBuffer[srcOffset],
-                     copyWidth * sizeof(uint32_t));
+        int copyWidth = std::min(cell.width, bufferWidth_ - atlasX);
+        std::memcpy(&renderBuffer_[static_cast<size_t>(dstY) * bufferWidth_ + atlasX],
+                    &cell.pixels[static_cast<size_t>(row) * cell.width],
+                    copyWidth * sizeof(uint32_t));
     }
 
-    // アトラスエントリ登録
+    // アトラスエントリ登録（オフセットはペン位置からの左上）
     AtlasEntry entry;
     entry.atlasX = atlasX;
     entry.atlasY = atlasY;
-    entry.atlasWidth = cellWidth;
-    entry.atlasHeight = cellHeight;
-    entry.offsetX = -(margin + maxOffsetX);
-    entry.offsetY = -(margin + maxOffsetY + style.fontSize * 0.8f);
+    entry.atlasWidth = cell.width;
+    entry.atlasHeight = cell.height;
+    entry.offsetX = cell.offsetX;
+    entry.offsetY = cell.offsetY;
     glyphMap_[key] = entry;
 
     return true;
 }
-
 bool TextureAtlas::addLayout(const TextLayout& layout,
                               const Appearance& appearance) {
     const TextStyle& style = layout.getStyle();
@@ -186,22 +232,15 @@ bool TextureAtlas::addParagraphLayout(const ParagraphLayout& para,
 bool TextureAtlas::addStyledLayout(const StyledLayout& styledLayout) {
     if (!styledLayout.isValid()) return false;
 
-    const auto& parsed = styledLayout.getParsed();
-
-    for (const auto& ll : styledLayout.getLineLayouts()) {
-        for (const auto& sl : ll.segments) {
-            const auto& span = parsed.spans[sl.spanIdx];
-            const TextStyle& segStyle = sl.layout.getStyle();
-            for (const auto& glyph : sl.layout.getGlyphs()) {
-                if (!renderGlyphToAtlas(glyph, segStyle, span.appearance)) {
-                    return false;
-                }
-            }
+    // 本文・ルビ・縦組みの注記をすべて登録する
+    for (const auto& p : styledLayout.getPlacements()) {
+        if (!renderGlyphToAtlas(p.glyph, styledLayout.getPlacementStyle(p),
+                                styledLayout.getPlacementAppearance(p))) {
+            return false;
         }
     }
     return true;
 }
-
 //------------------------------------------------------------------------------
 // テクスチャに書き込み
 //------------------------------------------------------------------------------
@@ -309,12 +348,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
     if (!styledLayout.isValid()) return rects;
 
     const auto& parsed = styledLayout.getParsed();
-    const auto& para = styledLayout.getParagraphLayout();
-    const auto& lineLayouts = styledLayout.getLineLayouts();
-    ParagraphLayout::HAlign hAlign = styledLayout.getHAlign();
-    ParagraphLayout::VAlign vAlign = styledLayout.getVAlign();
-    float maxWidth = styledLayout.getMaxWidth();
-    float maxHeight = styledLayout.getMaxHeight();
+    const auto& placements = styledLayout.getPlacements();
 
     // charIndex → delay のルックアップテーブルを構築
     std::unordered_map<int, float> delayMap;
@@ -324,115 +358,62 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
         }
     }
 
-    // リンク情報の参照
+    // 論理順（本文の charIndex 順）で先頭 maxChars 文字。
+    // ルビ・注記は親文字の charIndex を持つので、親文字と一緒に出る
+    size_t threshold = SIZE_MAX;
+    if (maxChars >= 0) {
+        std::vector<size_t> sorted;
+        sorted.reserve(placements.size());
+        for (const auto& p : placements) {
+            if (p.kind == StyledLayout::GlyphPlacement::Kind::Base) sorted.push_back(p.charIndex);
+        }
+        std::sort(sorted.begin(), sorted.end());
+        sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+        if (static_cast<size_t>(maxChars) < sorted.size()) threshold = sorted[maxChars];
+    }
+
     const auto& links = parsed.links;
-
-    int remaining = maxChars;
     int globalIndex = 0;
+    rects.reserve(placements.size());
+    for (const auto& p : placements) {
+        if (p.charIndex >= threshold) continue;
 
-    for (const auto& ll : lineLayouts) {
-        if (remaining == 0) break;
+        auto key = makeKey(p.glyph, styledLayout.getPlacementStyle(p),
+                           styledLayout.getPlacementAppearance(p));
+        auto it = glyphMap_.find(key);
+        if (it == glyphMap_.end()) continue;
 
-        const ParagraphLayout::LineInfo& line = para.getLine(ll.lineIdx);
-
-        auto pos = para.getLinePosition(ll.lineIdx, x, y,
-                                        maxWidth, maxHeight,
-                                        ParagraphLayout::HAlign::Left,
-                                        vAlign);
-        float baseY = pos.y;
-
-        if (ll.segments.empty()) continue;
-
-        // 水平アライン
-        float startX = x;
-        switch (hAlign) {
-        case ParagraphLayout::HAlign::Left:
-            startX = x;
-            break;
-        case ParagraphLayout::HAlign::Center:
-            startX = x + (maxWidth - ll.totalWidth) / 2.0f;
-            break;
-        case ParagraphLayout::HAlign::Right:
-            startX = x + maxWidth - ll.totalWidth;
-            break;
-        case ParagraphLayout::HAlign::Justify:
-            startX = x;
-            break;
+        const AtlasEntry& entry = it->second;
+        CopyRect cr;
+        cr.srcX = entry.atlasX;
+        cr.srcY = entry.atlasY;
+        cr.srcWidth = entry.atlasWidth;
+        cr.srcHeight = entry.atlasHeight;
+        cr.dstX = x + p.glyph.x + entry.offsetX;
+        cr.dstY = y + p.glyph.y + entry.offsetY;
+        cr.displayIndex = globalIndex++;
+        cr.charIndex = static_cast<int>(p.charIndex);
+        switch (p.kind) {
+        case StyledLayout::GlyphPlacement::Kind::Ruby:       cr.kind = 1; break;
+        case StyledLayout::GlyphPlacement::Kind::Annotation: cr.kind = 2; break;
+        default: cr.kind = 0; break;
         }
 
-        float curX = startX;
-        for (const auto& sl : ll.segments) {
-            if (remaining == 0) break;
-
-            const auto& span = parsed.spans[sl.spanIdx];
-            float drawY = baseY + sl.yOffset;
-            const TextStyle& segStyle = sl.layout.getStyle();
-            const auto& glyphs = sl.layout.getGlyphs();
-
-            // maxChars 処理用に threshold を計算
-            size_t threshold = SIZE_MAX;
-            if (remaining >= 0) {
-                std::vector<size_t> sorted;
-                sorted.reserve(glyphs.size());
-                for (const auto& g : glyphs) sorted.push_back(g.charIndex);
-                std::sort(sorted.begin(), sorted.end());
-                sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
-                if (static_cast<size_t>(remaining) < sorted.size()) {
-                    threshold = sorted[remaining];
-                }
-            }
-
-            for (size_t i = 0; i < glyphs.size(); ++i) {
-                if (glyphs[i].charIndex >= threshold) continue;
-
-                auto key = makeKey(glyphs[i], segStyle, span.appearance);
-                auto it = glyphMap_.find(key);
-                if (it == glyphMap_.end()) continue;
-
-                const AtlasEntry& entry = it->second;
-                CopyRect cr;
-                cr.srcX = entry.atlasX;
-                cr.srcY = entry.atlasY;
-                cr.srcWidth = entry.atlasWidth;
-                cr.srcHeight = entry.atlasHeight;
-                cr.dstX = curX + glyphs[i].x + entry.offsetX;
-                cr.dstY = drawY + glyphs[i].y + entry.offsetY;
-                cr.displayIndex = globalIndex++;
-
-                // plainText 上の charIndex を計算
-                size_t plainCharIdx = sl.segStart + glyphs[i].charIndex;
-                cr.charIndex = static_cast<int>(plainCharIdx);
-
-                // delay を設定
-                if (!delayMap.empty()) {
-                    auto dit = delayMap.find(static_cast<int>(plainCharIdx));
-                    if (dit != delayMap.end()) {
-                        cr.delay = dit->second;
-                    }
-                }
-
-                // linkIndex を設定
-                for (int lk = 0; lk < static_cast<int>(links.size()); ++lk) {
-                    if (plainCharIdx >= links[lk].startIndex && plainCharIdx < links[lk].endIndex) {
-                        cr.linkIndex = lk;
-                        break;
-                    }
-                }
-
-                rects.push_back(cr);
-            }
-
-            if (remaining > 0) {
-                size_t segCharCount = sl.layout.getCharCount();
-                size_t drawn = std::min(static_cast<size_t>(remaining), segCharCount);
-                remaining -= static_cast<int>(drawn);
-            }
-
-            curX += sl.measuredWidth;
+        if (!delayMap.empty()) {
+            auto dit = delayMap.find(static_cast<int>(p.charIndex));
+            if (dit != delayMap.end()) cr.delay = dit->second;
         }
+
+        for (int lk = 0; lk < static_cast<int>(links.size()); ++lk) {
+            if (p.charIndex >= links[lk].startIndex && p.charIndex < links[lk].endIndex) {
+                cr.linkIndex = lk;
+                break;
+            }
+        }
+
+        rects.push_back(cr);
     }
 
     return rects;
 }
-
 } // namespace richtext

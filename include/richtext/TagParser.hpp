@@ -72,6 +72,23 @@ public:
     };
     
     /**
+     * ルビ区間（<ruby> タグ単位。中に別のタグがあっても分割しない）
+     */
+    struct RubyInfo {
+        size_t start = 0;           ///< 開始位置（プレーンテキスト内）
+        size_t end = 0;             ///< 終了位置
+        std::u16string text;        ///< ルビテキスト
+    };
+
+    /**
+     * 範囲（<tcy> 縦中横など）
+     */
+    struct RangeInfo {
+        size_t start = 0;
+        size_t end = 0;
+    };
+
+    /**
      * パース結果
      */
     struct ParseResult {
@@ -88,6 +105,8 @@ public:
         std::vector<TimingEntry> timings;               ///< 文字表示タイミング
         std::vector<LinkInfo> links;                    ///< リンク領域
         std::vector<GraphInfo> graphics;                ///< グラフィック文字
+        std::vector<RubyInfo> rubies;                   ///< ルビ区間（タグ単位）
+        std::vector<RangeInfo> tateChuYoko;             ///< 縦中横区間（<tcy>。縦組みでのみ効く）
     };
     
     /**

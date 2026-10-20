@@ -61,6 +61,20 @@ struct CopyRect {
     float delay = -1.0f;
     // リンク番号（-1 = なし）
     int linkIndex = -1;
+    // 種類（0 = 本文、1 = ルビ、2 = 縦組みの注記）
+    int kind = 0;
+};
+
+/**
+ * 文字セル 1 個の画像（TextureAtlas::rasterizeGlyphCell の結果）
+ *
+ * グリフを外観（縁取り・影）込み・変形（回転・倍率）込みで描き、インクのある範囲で切り抜いたもの。
+ * 描画先では「グリフの位置 (glyph.x, glyph.y を足したペン位置) + offsetX/offsetY」に左上を置く。
+ */
+struct GlyphCell {
+    int width = 0, height = 0;
+    float offsetX = 0, offsetY = 0;
+    std::vector<uint32_t> pixels;   ///< 非乗算 ARGB、width * height
 };
 
 /**
@@ -166,22 +180,27 @@ public:
                                        int maxChars = -1,
                                        const std::vector<ResolvedTiming>* resolvedTimings = nullptr) const;
 
-private:
-    ITexture* texture_;
+    // ------------------------------------------------------------------
+    // 文字セル（別の描画系が同じセルを作れるように公開する）
+    // ------------------------------------------------------------------
 
-    // グリフ配置マップ（重複排除用）
-    // キー: font + glyphId + fontSize + fontWidth + fakery + appearance
+    // 文字セルの重複排除キー
+    // キー: font + glyphId + 文字サイズ + fontWidth + fakery + 回転 + 倍率 + appearance
     struct GlyphKey {
         uintptr_t fontPtr;
         uint32_t glyphId;
-        uint32_t fontSizeQ;       // fontSize * 64 で量子化
+        uint32_t fontSizeQ;       // glyphFontSize() * 64 で量子化（ルビ・注記の文字サイズを含む）
         uint32_t fontWidthQ;      // fontWidth * 64 で量子化
         uint8_t fakeryFlags;      // bit0: fakeBold, bit1: fakeItalic
+        int32_t rotationQ;        // rotation * 4096 で量子化
+        int32_t scaleXQ;          // scaleX * 4096 で量子化
+        int32_t scaleYQ;          // scaleY * 4096 で量子化
         size_t appearanceHash;    // Appearance のハッシュ値
         bool operator==(const GlyphKey& o) const {
             return fontPtr == o.fontPtr && glyphId == o.glyphId
                 && fontSizeQ == o.fontSizeQ && fontWidthQ == o.fontWidthQ
                 && fakeryFlags == o.fakeryFlags
+                && rotationQ == o.rotationQ && scaleXQ == o.scaleXQ && scaleYQ == o.scaleYQ
                 && appearanceHash == o.appearanceHash;
         }
     };
@@ -192,10 +211,28 @@ private:
             h ^= static_cast<size_t>(k.fontSizeQ) * 40503u;
             h ^= static_cast<size_t>(k.fontWidthQ) * 16777619u;
             h ^= static_cast<size_t>(k.fakeryFlags) * 2246822519u;
+            h ^= static_cast<size_t>(static_cast<uint32_t>(k.rotationQ)) * 3266489917u;
+            h ^= static_cast<size_t>(static_cast<uint32_t>(k.scaleXQ)) * 668265263u;
+            h ^= static_cast<size_t>(static_cast<uint32_t>(k.scaleYQ)) * 374761393u;
             h ^= k.appearanceHash * 13;
             return h;
         }
     };
+
+    /// 文字セルのキー
+    static GlyphKey makeKey(const GlyphInfo& glyph, const TextStyle& style,
+                            const Appearance& appearance);
+
+    /**
+     * 文字セルを 1 個描く
+     * 大きめの領域にペン位置を中心にして描き、インクのある範囲 (+1px) で切り抜く。
+     * インクの無いグリフ（空白など）は 1x1 の透明セルになる。
+     */
+    static bool rasterizeGlyphCell(const GlyphInfo& glyph, const TextStyle& style,
+                                   const Appearance& appearance, GlyphCell& out);
+
+private:
+    ITexture* texture_;
 
     struct AtlasEntry {
         int atlasX, atlasY;
@@ -217,8 +254,6 @@ private:
     int bufferWidth_ = 0;
     int bufferHeight_ = 0;
 
-    GlyphKey makeKey(const GlyphInfo& glyph, const TextStyle& style,
-                     const Appearance& appearance) const;
     bool allocateRect(int width, int height, int& outX, int& outY);
     bool renderGlyphToAtlas(const GlyphInfo& glyph,
                             const TextStyle& style,

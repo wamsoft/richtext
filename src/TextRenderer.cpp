@@ -494,126 +494,76 @@ RectF TextRenderer::drawStyledLayout(const StyledLayout& styledLayout,
         return RectF();
     }
 
-    const auto& parsed = styledLayout.getParsed();
-    const auto& para = styledLayout.getParagraphLayout();
-    const auto& lineLayouts = styledLayout.getLineLayouts();
-    ParagraphLayout::HAlign hAlign = styledLayout.getHAlign();
-    ParagraphLayout::VAlign vAlign = styledLayout.getVAlign();
-    float maxWidth = styledLayout.getMaxWidth();
-    float maxHeight = styledLayout.getMaxHeight();
-    const auto& parserOptions = styledLayout.getParserOptions();
+    const auto& placements = styledLayout.getPlacements();
 
-    RectF totalBounds;
-    bool first = true;
-    int remaining = maxChars;
-
-    for (const auto& ll : lineLayouts) {
-        if (remaining == 0) break;
-
-        const ParagraphLayout::LineInfo& line = para.getLine(ll.lineIdx);
-
-        // 行の垂直位置を計算
-        auto pos = para.getLinePosition(ll.lineIdx, x, y,
-                                        maxWidth, maxHeight,
-                                        ParagraphLayout::HAlign::Left,  // X は後で調整
-                                        vAlign);
-        float baseY = pos.y;
-
-        if (ll.segments.empty()) {
-            continue;
+    // 論理順（本文の charIndex 順）で先頭 maxChars 文字。
+    // ルビ・注記は親文字の charIndex を持つので、親文字と一緒に出る
+    size_t threshold = SIZE_MAX;
+    if (maxChars >= 0) {
+        std::vector<size_t> sorted;
+        sorted.reserve(placements.size());
+        for (const auto& p : placements) {
+            if (p.kind == StyledLayout::GlyphPlacement::Kind::Base) sorted.push_back(p.charIndex);
         }
+        std::sort(sorted.begin(), sorted.end());
+        sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+        if (static_cast<size_t>(maxChars) < sorted.size()) threshold = sorted[maxChars];
+    }
 
-        // 水平アライン開始X を決定
-        float startX = x;
-        switch (hAlign) {
-        case ParagraphLayout::HAlign::Left:
-            startX = x;
-            break;
-        case ParagraphLayout::HAlign::Center:
-            startX = x + (maxWidth - ll.totalWidth) / 2.0f;
-            break;
-        case ParagraphLayout::HAlign::Right:
-            startX = x + maxWidth - ll.totalWidth;
-            break;
-        case ParagraphLayout::HAlign::Justify:
-            startX = x;
-            break;
-        }
+    for (const auto& p : placements) {
+        if (p.charIndex >= threshold) continue;
+        glyphRenderer_->renderGlyph(p.glyph, x, y,
+                                    styledLayout.getPlacementStyle(p),
+                                    styledLayout.getPlacementAppearance(p));
+    }
 
-        // 各セグメントを順番に描画
-        float curX = startX;
-        for (const auto& sl : ll.segments) {
-            if (remaining == 0) break;
-
-            const auto& span = parsed.spans[sl.spanIdx];
-            float drawY = baseY + sl.yOffset;
-
-            int segMax = remaining;  // -1 はそのまま「全て」として渡る
-            RectF segBounds = drawLayout(sl.layout, curX, drawY, span.appearance, segMax);
-
-            if (remaining > 0) {
-                // 論理文字数（ユニーク charIndex 数）で減算
-                size_t segCharCount = sl.layout.getCharCount();
-                size_t drawn = std::min(static_cast<size_t>(remaining), segCharCount);
-                remaining -= static_cast<int>(drawn);
+    // 下線・取り消し線（横組みのみ。区間の先頭の文字が出ていれば区間全体に引く）
+    if (!styledLayout.isVertical()) {
+        const auto& parsed = styledLayout.getParsed();
+        const auto& para = styledLayout.getParagraphLayout();
+        const float maxWidth = styledLayout.getMaxWidth();
+        const float maxHeight = styledLayout.getMaxHeight();
+        for (const auto& ll : styledLayout.getLineLayouts()) {
+            if (ll.segments.empty()) continue;
+            const ParagraphLayout::LineInfo& line = para.getLine(ll.lineIdx);
+            auto pos = para.getLinePosition(ll.lineIdx, x, y, maxWidth, maxHeight,
+                                            ParagraphLayout::HAlign::Left,
+                                            styledLayout.getVAlign());
+            float curX = x;
+            switch (styledLayout.getHAlign()) {
+            case ParagraphLayout::HAlign::Center: curX = x + (maxWidth - ll.totalWidth) / 2.0f; break;
+            case ParagraphLayout::HAlign::Right:  curX = x + maxWidth - ll.totalWidth; break;
+            default: break;
             }
-
-            // 下線・取り消し線の描画
-            if (span.hasUnderline || span.hasStrikethrough) {
-                uint32_t lineColor = 0xFF000000;
-                for (const auto& ds : span.appearance.getStyles()) {
-                    if (ds.type == DrawStyle::Type::Fill &&
-                        ds.offsetX == 0.0f && ds.offsetY == 0.0f) {
-                        lineColor = ds.getColor();
+            for (const auto& sl : ll.segments) {
+                const auto& span = parsed.spans[sl.spanIdx];
+                if ((span.hasUnderline || span.hasStrikethrough) && sl.segStart < threshold) {
+                    float drawY = pos.y + sl.yOffset;
+                    uint32_t lineColor = 0xFF000000;
+                    for (const auto& ds : span.appearance.getStyles()) {
+                        if (ds.type == DrawStyle::Type::Fill &&
+                            ds.offsetX == 0.0f && ds.offsetY == 0.0f) {
+                            lineColor = ds.getColor();
+                        }
+                    }
+                    float lineThickness = std::max(1.0f, span.style.fontSize / 18.0f);
+                    if (span.hasUnderline) {
+                        drawRect(curX, drawY + line.descent * 0.3f, sl.measuredWidth, lineThickness,
+                                 lineColor, 0, 0);
+                    }
+                    if (span.hasStrikethrough) {
+                        drawRect(curX, drawY + line.ascent * 0.35f, sl.measuredWidth, lineThickness,
+                                 lineColor, 0, 0);
                     }
                 }
-                float lineThickness = std::max(1.0f, span.style.fontSize / 18.0f);
-
-                if (span.hasUnderline) {
-                    float underlineY = drawY + line.descent * 0.3f;
-                    drawRect(curX, underlineY, sl.measuredWidth, lineThickness,
-                             lineColor, 0, 0);
-                }
-                if (span.hasStrikethrough) {
-                    float strikeY = drawY + line.ascent * 0.35f;
-                    drawRect(curX, strikeY, sl.measuredWidth, lineThickness,
-                             lineColor, 0, 0);
-                }
-            }
-
-            // ルビ描画
-            if (span.hasRuby && !span.rubyText.empty()) {
-                TextStyle rubyStyle = span.style;
-                rubyStyle.fontSize *= parserOptions.rubyScale;
-
-                TextLayout rubyLayout;
-                rubyLayout.layout(span.rubyText, rubyStyle);
-
-                float rubyWidth = rubyLayout.getWidth();
-                float rubyX = curX + (sl.measuredWidth - rubyWidth) / 2.0f;
-                float rubyY = drawY + sl.layout.getAscent() + rubyLayout.getDescent();
-
-                drawLayout(rubyLayout, rubyX, rubyY, span.appearance);
-            }
-
-            curX += sl.measuredWidth;
-
-            if (first) {
-                totalBounds = segBounds;
-                first = false;
-            } else {
-                float left   = std::min(totalBounds.x, segBounds.x);
-                float top    = std::min(totalBounds.y, segBounds.y);
-                float right  = std::max(totalBounds.right(), segBounds.right());
-                float bottom = std::max(totalBounds.bottom(), segBounds.bottom());
-                totalBounds = RectF(left, top, right - left, bottom - top);
+                curX += sl.measuredWidth;
             }
         }
     }
 
-    return totalBounds;
+    const auto& b = styledLayout.getBounds();
+    return RectF(x + b.x, y + b.y, b.width, b.height);
 }
-
 //------------------------------------------------------------------------------
 // グリフ情報取得
 //------------------------------------------------------------------------------

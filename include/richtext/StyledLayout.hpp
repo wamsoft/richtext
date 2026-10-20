@@ -12,6 +12,7 @@
 #include "richtext/TagParser.hpp"
 #include "richtext/TimingInfo.hpp"
 #include "richtext/LinkRegion.hpp"
+#include "richtext/vertical/VerticalParagraphLayout.hpp"
 
 namespace richtext {
 
@@ -45,7 +46,49 @@ public:
         std::vector<SegmentLayout> segments;    ///< セグメント配列
     };
 
+    /**
+     * 組み方向
+     */
+    enum class WritingMode {
+        Horizontal = 0,     ///< 横組み
+        VerticalRl = 1,     ///< 縦組み・列は右から左へ
+        VerticalLr = 2,     ///< 縦組み・列は左から右へ
+    };
+
+    /**
+     * 文字ごとの最終的な配置（layout() で作る）
+     *
+     * 横組み・縦組みとも、本文・ルビ・注記のすべてのグリフをこの形で持つ。
+     * glyph.x / glyph.y は layout() の描画原点 (drawStyledLayout の x, y) からの位置で、
+     * 回転・倍率・注記の文字サイズ (glyph.fontSize) もそのまま入っている。
+     * 描画は GlyphRenderer::renderGlyph(glyph, 原点X, 原点Y, getPlacementStyle(p), getPlacementAppearance(p))。
+     */
+    struct GlyphPlacement {
+        enum class Kind {
+            Base,           ///< 本文
+            Ruby,           ///< ルビ
+            Annotation,     ///< 縦組みの注記（ルビ・縦中横の文字以外の注記グリフ）
+        };
+        GlyphInfo glyph;
+        size_t styleIndex = 0;          ///< getPlacementStyles() の添字
+        size_t spanIdx = SIZE_MAX;      ///< 外観を引く span（SIZE_MAX なら既定の外観）
+        size_t charIndex = 0;           ///< プレーンテキスト上の位置（ルビ・注記は親文字の先頭）
+        Kind kind = Kind::Base;
+    };
+
     StyledLayout() = default;
+
+    /**
+     * 組み方向の設定（layout() 前に呼ぶ。既定は横組み）
+     *
+     * 縦組みでは maxHeight が列の長さ、maxWidth が列を並べる幅になる。
+     * 列の中の揃えは hAlign (Left=行頭 / Center / Right=行末) を使い、vAlign は使わない。
+     * 縦組みの文字の大きさ・太さ・フォントは default スタイルで揃い、
+     * タグで変えられるのは外観（色・縁取り・影）とルビ・縦中横 (<tcy>)。
+     */
+    void setWritingMode(WritingMode mode) { writingMode_ = mode; }
+    WritingMode getWritingMode() const { return writingMode_; }
+    bool isVertical() const { return writingMode_ != WritingMode::Horizontal; }
 
     /**
      * TagParser オプションの設定（layout() 前に呼ぶ）
@@ -103,8 +146,27 @@ public:
     /** 行レイアウト配列の取得 */
     const std::vector<LineLayout>& getLineLayouts() const { return lineLayouts_; }
 
-    /** 行数 */
-    size_t getLineCount() const { return lineLayouts_.size(); }
+    /** 行数（縦組みでは列数） */
+    size_t getLineCount() const { return isVertical() ? vpara_.getLineCount() : lineLayouts_.size(); }
+
+    /** 文字ごとの配置（本文・ルビ・注記） */
+    const std::vector<GlyphPlacement>& getPlacements() const { return placements_; }
+
+    /** 配置が参照するスタイル */
+    const std::vector<TextStyle>& getPlacementStyles() const { return placementStyles_; }
+    const TextStyle& getPlacementStyle(const GlyphPlacement& p) const { return placementStyles_[p.styleIndex]; }
+
+    /** 配置の外観 */
+    const Appearance& getPlacementAppearance(const GlyphPlacement& p) const {
+        return p.spanIdx < parsed_.spans.size() ? parsed_.spans[p.spanIdx].appearance : defaultAppearance_;
+    }
+
+    /** 描画範囲（描画原点からの位置。縁取り・影は含まない） */
+    struct Bounds { float x = 0, y = 0, width = 0, height = 0; };
+    const Bounds& getBounds() const { return bounds_; }
+
+    /** 縦組みのレイアウト結果 */
+    const vertical::VerticalParagraphLayout& getVerticalLayout() const { return vpara_; }
 
     /** 水平アライン */
     ParagraphLayout::HAlign getHAlign() const { return hAlign_; }
@@ -189,6 +251,17 @@ private:
 
     size_t totalCharCount_ = 0;
     bool valid_ = false;
+
+    WritingMode writingMode_ = WritingMode::Horizontal;
+    vertical::VerticalParagraphLayout vpara_;
+    Appearance defaultAppearance_;
+    std::vector<GlyphPlacement> placements_;
+    std::vector<TextStyle> placementStyles_;
+    Bounds bounds_;
+
+    void buildHorizontalPlacements();
+    void layoutVertical(const TextStyle& defaultStyle, float lineSpacing);
+    size_t findSpan(size_t charIndex) const;
 
     // タイミング解決結果
     mutable std::vector<ResolvedTiming> resolvedTimings_;
