@@ -7,6 +7,8 @@
 #include "richtext/TagParser.hpp"
 #include "richtext/FontManager.hpp"
 
+#include <minikin/GraphemeBreak.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -386,6 +388,20 @@ TagParser::ParseResult TagParser::parse(
     result.hasErrors = !result.errors.empty();
 
     // メタデータ
+    // 文字の表示時間は書記素 (見た目の 1 文字) ごとに 1 回だけ数える。サロゲートペアの後半、
+    // 結合文字、異体字セレクタ、絵文字の肌色・ZWJ 結合・国旗などは、先頭の文字と同じ時刻に出る
+    if (!result.plainText.empty()) {
+        const auto* buf = reinterpret_cast<const uint16_t*>(result.plainText.data());
+        const size_t len = result.plainText.size();
+        state.timings.erase(
+            std::remove_if(state.timings.begin(), state.timings.end(),
+                           [&](const TimingEntry& t) {
+                               if (t.type != TimingEntry::Type::Char || t.charIndex <= 0) return false;
+                               const size_t ci = static_cast<size_t>(t.charIndex);
+                               return ci < len && !minikin::GraphemeBreak::isGraphemeBreak(nullptr, buf, 0, len, ci);
+                           }),
+            state.timings.end());
+    }
     result.timings = std::move(state.timings);
     result.links = std::move(state.links);
     result.graphics = std::move(state.graphics);
