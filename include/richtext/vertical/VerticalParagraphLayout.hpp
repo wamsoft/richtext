@@ -61,6 +61,14 @@ public:
         /// ぶら下げた分の長さ（hanging が false なら 0）
         float hangWidth = 0.0f;
 
+        /// 行内の Box（文字・縦中横など）の位置。下線などを引くのに使う
+        struct Box {
+            size_t charStart = 0;   ///< 元テキストでの先頭位置（UTF-16 単位）
+            float v = 0.0f;         ///< 行頭からの送り
+            float length = 0.0f;    ///< 送り方向の長さ
+        };
+        std::vector<Box> boxes;
+
         float width() const { return extentRight - extentLeft; }
     };
 

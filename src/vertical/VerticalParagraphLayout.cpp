@@ -126,6 +126,7 @@ void VerticalParagraphLayout::layoutParagraph(const std::u16string& paragraph,
             }
 
             const ShapedCluster& cluster = shaped.clusters[item.clusterIndex];
+            line.boxes.push_back({ charOffset + item.charIndex, v, item.width });
 
             if (!item.ownGlyphs) {
                 // クラスタはベタ組み位置で組んであるので、その差分だけずらす

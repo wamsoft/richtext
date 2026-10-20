@@ -5,6 +5,8 @@
 #include <unordered_map>
 #include <cstdint>
 #include <memory>
+#include <algorithm>
+#include <iterator>
 
 #include "richtext/TextLayout.hpp"
 #include "richtext/ParagraphLayout.hpp"
@@ -196,12 +198,16 @@ public:
         int32_t scaleXQ;          // scaleX * 4096 で量子化
         int32_t scaleYQ;          // scaleY * 4096 で量子化
         size_t appearanceHash;    // Appearance のハッシュ値
+        uint32_t decorationColor = 0;     // 下線・取り消し線の色（線が無ければ 0）
+        int32_t decorationQ[8] = {};      // 下線・取り消し線の矩形 * 64 で量子化
         bool operator==(const GlyphKey& o) const {
             return fontPtr == o.fontPtr && glyphId == o.glyphId
                 && fontSizeQ == o.fontSizeQ && fontWidthQ == o.fontWidthQ
                 && fakeryFlags == o.fakeryFlags
                 && rotationQ == o.rotationQ && scaleXQ == o.scaleXQ && scaleYQ == o.scaleYQ
-                && appearanceHash == o.appearanceHash;
+                && appearanceHash == o.appearanceHash
+                && decorationColor == o.decorationColor
+                && std::equal(std::begin(decorationQ), std::end(decorationQ), std::begin(o.decorationQ));
         }
     };
     struct GlyphKeyHash {
@@ -215,12 +221,17 @@ public:
             h ^= static_cast<size_t>(static_cast<uint32_t>(k.scaleXQ)) * 668265263u;
             h ^= static_cast<size_t>(static_cast<uint32_t>(k.scaleYQ)) * 374761393u;
             h ^= k.appearanceHash * 13;
+            h ^= static_cast<size_t>(k.decorationColor) * 2654435769u;
+            for (int32_t q : k.decorationQ) h = h * 31 + static_cast<uint32_t>(q);
             return h;
         }
     };
 
     /// 文字セルのキー
     static GlyphKey makeKey(const GlyphInfo& glyph, const TextStyle& style,
+                            const Appearance& appearance);
+    /// 文字セルのキー（下線・取り消し線を含む）
+    static GlyphKey makeKey(const StyledLayout::GlyphPlacement& placement, const TextStyle& style,
                             const Appearance& appearance);
 
     /**
@@ -229,6 +240,9 @@ public:
      * インクの無いグリフ（空白など）は 1x1 の透明セルになる。
      */
     static bool rasterizeGlyphCell(const GlyphInfo& glyph, const TextStyle& style,
+                                   const Appearance& appearance, GlyphCell& out);
+    /// 文字セルを 1 個描く（下線・取り消し線の受け持ち分も描き込む）
+    static bool rasterizeGlyphCell(const StyledLayout::GlyphPlacement& placement, const TextStyle& style,
                                    const Appearance& appearance, GlyphCell& out);
 
 private:
@@ -258,6 +272,7 @@ private:
     bool renderGlyphToAtlas(const GlyphInfo& glyph,
                             const TextStyle& style,
                             const Appearance& appearance);
+    bool storeCell(const GlyphKey& key, const GlyphCell& cell);
 };
 
 } // namespace richtext

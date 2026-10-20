@@ -170,6 +170,39 @@ size_t StyledLayout::findSpan(size_t charIndex) const {
     return SIZE_MAX;
 }
 
+/// 下線・取り消し線の色（ずらしの無い塗りの色。無ければ黒）
+uint32_t StyledLayout::decorationColorOf(size_t spanIdx) const {
+    uint32_t color = 0xFF000000;
+    if (spanIdx < parsed_.spans.size()) {
+        for (const auto& ds : parsed_.spans[spanIdx].appearance.getStyles()) {
+            if (ds.type == DrawStyle::Type::Fill && ds.offsetX == 0.0f && ds.offsetY == 0.0f) {
+                color = ds.getColor();
+            }
+        }
+    }
+    return color;
+}
+
+namespace {
+
+/// 下線・取り消し線の継ぎ目が空かないよう、続きのある部分を伸ばす長さ
+constexpr float kDecorationOverlap = 1.0f;
+
+void addDecoration(StyledLayout::GlyphPlacement& p, float x, float y, float w, float h,
+                   bool vertical, bool capStart, bool capEnd) {
+    if (w <= 0.0f || h <= 0.0f || p.decorationCount >= 2) return;
+    auto& d = p.decorations[p.decorationCount++];
+    d.x = x - p.glyph.x;
+    d.y = y - p.glyph.y;
+    d.width = w;
+    d.height = h;
+    d.vertical = vertical;
+    d.capStart = capStart;
+    d.capEnd = capEnd;
+}
+
+} // namespace
+
 void StyledLayout::buildHorizontalPlacements() {
     BoundsAccumulator acc;
 
@@ -195,11 +228,13 @@ void StyledLayout::buildHorizontalPlacements() {
         default: break;
         }
 
+        const ParagraphLayout::LineInfo& lineInfo = para_.getLine(ll.lineIdx);
         float curX = startX;
         for (const auto& sl : ll.segments) {
             float drawY = pos.y + sl.yOffset;
             size_t styleIdx = placementStyles_.size();
             placementStyles_.push_back(sl.layout.getStyle());
+            const size_t segFirst = placements_.size();
 
             for (const auto& g : sl.layout.getGlyphs()) {
                 GlyphPlacement p;
@@ -232,6 +267,33 @@ void StyledLayout::buildHorizontalPlacements() {
 
             auto b = sl.layout.getBounds();
             acc.add(curX + b.left, drawY - b.top, curX + b.right, drawY - b.bottom);
+
+            // 下線・取り消し線: セグメントの幅いっぱいの線を、文字ごとに切って持たせる
+            const auto& span = parsed_.spans[sl.spanIdx];
+            if ((span.hasUnderline || span.hasStrikethrough) && placements_.size() > segFirst) {
+                std::vector<size_t> order;
+                for (size_t i = segFirst; i < placements_.size(); ++i) order.push_back(i);
+                std::stable_sort(order.begin(), order.end(), [this](size_t a, size_t b) {
+                    return placements_[a].glyph.x < placements_[b].glyph.x;
+                });
+                const float thickness = std::max(1.0f, span.style.fontSize / 18.0f);
+                const float underlineY = drawY + lineInfo.descent * 0.3f;
+                const float strikeY = drawY + lineInfo.ascent * 0.35f;
+                const float segEndX = curX + sl.measuredWidth;
+                const uint32_t color = decorationColorOf(sl.spanIdx);
+                for (size_t k = 0; k < order.size(); ++k) {
+                    GlyphPlacement& p = placements_[order[k]];
+                    const bool last = (k + 1 == order.size());
+                    const float x0 = (k == 0) ? curX : p.glyph.x;
+                    const float x1 = last ? segEndX : placements_[order[k + 1]].glyph.x;
+                    if (x1 <= x0) continue;     // 結合文字など、同じ位置のグリフ
+                    const float w = x1 - x0 + (last ? 0.0f : kDecorationOverlap);
+                    if (span.hasUnderline) addDecoration(p, x0, underlineY, w, thickness, false, k == 0, last);
+                    if (span.hasStrikethrough) addDecoration(p, x0, strikeY, w, thickness, false, k == 0, last);
+                    p.decorationColor = color;
+                }
+                if (span.hasUnderline) acc.add(curX, underlineY, segEndX, underlineY + thickness);
+            }
             curX += sl.measuredWidth;
         }
     }
@@ -339,6 +401,7 @@ void StyledLayout::layoutVertical(const TextStyle& defaultStyle, float lineSpaci
             }
         }
 
+        const size_t colFirst = placements_.size();
         for (const auto& g : line.glyphs) {
             GlyphPlacement p;
             p.glyph = g;
@@ -352,6 +415,45 @@ void StyledLayout::layoutVertical(const TextStyle& defaultStyle, float lineSpaci
             placements_.push_back(p);
         }
         acc.add(pos.x + line.extentLeft, pos.y + off, pos.x + line.extentRight, pos.y + off + line.length);
+
+        // 下線（列の右側の傍線）・取り消し線（列の中心）。Box ごとに切って、
+        // その Box の最初のグリフに持たせる
+        const float thickness = std::max(1.0f, defaultStyle.fontSize / 18.0f);
+        const float halfEm = defaultStyle.fontSize * 0.5f;
+        for (size_t bi = 0; bi < line.boxes.size(); ++bi) {
+            const auto& box = line.boxes[bi];
+            const size_t spanIdx = findSpan(box.charStart);
+            if (spanIdx >= parsed_.spans.size()) continue;
+            const auto& span = parsed_.spans[spanIdx];
+            if (!span.hasUnderline && !span.hasStrikethrough) continue;
+            const size_t rangeEnd = (bi + 1 < line.boxes.size()) ? line.boxes[bi + 1].charStart : SIZE_MAX;
+            GlyphPlacement* owner = nullptr;
+            for (size_t i = colFirst; i < placements_.size(); ++i) {
+                const size_t ci = placements_[i].charIndex;
+                if (ci >= box.charStart && ci < rangeEnd) { owner = &placements_[i]; break; }
+            }
+            if (!owner) continue;
+            // 次の Box も同じ線を引くなら、間のアキも含めてそこまで伸ばす
+            auto sameDecoration = [&](size_t other) {
+                const size_t s = findSpan(line.boxes[other].charStart);
+                return s < parsed_.spans.size() &&
+                       parsed_.spans[s].hasUnderline == span.hasUnderline &&
+                       parsed_.spans[s].hasStrikethrough == span.hasStrikethrough;
+            };
+            const bool capStart = !(bi > 0 && sameDecoration(bi - 1));
+            const bool capEnd = !(bi + 1 < line.boxes.size() && sameDecoration(bi + 1));
+            const float y0 = pos.y + off + box.v;
+            const float y1 = capEnd ? y0 + box.length
+                                    : pos.y + off + line.boxes[bi + 1].v + kDecorationOverlap;
+            if (span.hasUnderline) {
+                addDecoration(*owner, pos.x + halfEm, y0, thickness, y1 - y0, true, capStart, capEnd);
+                acc.add(pos.x + halfEm, y0, pos.x + halfEm + thickness, y1);
+            }
+            if (span.hasStrikethrough) {
+                addDecoration(*owner, pos.x - thickness / 2.0f, y0, thickness, y1 - y0, true, capStart, capEnd);
+            }
+            owner->decorationColor = decorationColorOf(spanIdx);
+        }
     }
 
     totalCharCount_ = chars.size();

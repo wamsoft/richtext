@@ -512,51 +512,31 @@ RectF TextRenderer::drawStyledLayout(const StyledLayout& styledLayout,
 
     for (const auto& p : placements) {
         if (p.charIndex >= threshold) continue;
-        glyphRenderer_->renderGlyph(p.glyph, x, y,
-                                    styledLayout.getPlacementStyle(p),
-                                    styledLayout.getPlacementAppearance(p));
-    }
-
-    // 下線・取り消し線（横組みのみ。区間の先頭の文字が出ていれば区間全体に引く）
-    if (!styledLayout.isVertical()) {
-        const auto& parsed = styledLayout.getParsed();
-        const auto& para = styledLayout.getParagraphLayout();
-        const float maxWidth = styledLayout.getMaxWidth();
-        const float maxHeight = styledLayout.getMaxHeight();
-        for (const auto& ll : styledLayout.getLineLayouts()) {
-            if (ll.segments.empty()) continue;
-            const ParagraphLayout::LineInfo& line = para.getLine(ll.lineIdx);
-            auto pos = para.getLinePosition(ll.lineIdx, x, y, maxWidth, maxHeight,
-                                            ParagraphLayout::HAlign::Left,
-                                            styledLayout.getVAlign());
-            float curX = x;
-            switch (styledLayout.getHAlign()) {
-            case ParagraphLayout::HAlign::Center: curX = x + (maxWidth - ll.totalWidth) / 2.0f; break;
-            case ParagraphLayout::HAlign::Right:  curX = x + maxWidth - ll.totalWidth; break;
-            default: break;
+        const TextStyle& style = styledLayout.getPlacementStyle(p);
+        const Appearance& app = styledLayout.getPlacementAppearance(p);
+        if (p.decorationCount == 0) {
+            glyphRenderer_->renderGlyph(p.glyph, x, y, style, app);
+            continue;
+        }
+        // 下線・取り消し線（文字ごとに切ってある）。DrawStyle ごとに文字と交互に描く
+        const float px = x + p.glyph.x, py = y + p.glyph.y;
+        if (app.getStyles().empty()) {
+            glyphRenderer_->renderGlyph(p.glyph, x, y, style, app);
+            for (int i = 0; i < p.decorationCount && i < 2; ++i) {
+                const auto& d = p.decorations[i];
+                drawRect(px + d.x, py + d.y, d.width, d.height, p.decorationColor, 0, 0);
             }
-            for (const auto& sl : ll.segments) {
-                const auto& span = parsed.spans[sl.spanIdx];
-                if ((span.hasUnderline || span.hasStrikethrough) && sl.segStart < threshold) {
-                    float drawY = pos.y + sl.yOffset;
-                    uint32_t lineColor = 0xFF000000;
-                    for (const auto& ds : span.appearance.getStyles()) {
-                        if (ds.type == DrawStyle::Type::Fill &&
-                            ds.offsetX == 0.0f && ds.offsetY == 0.0f) {
-                            lineColor = ds.getColor();
-                        }
-                    }
-                    float lineThickness = std::max(1.0f, span.style.fontSize / 18.0f);
-                    if (span.hasUnderline) {
-                        drawRect(curX, drawY + line.descent * 0.3f, sl.measuredWidth, lineThickness,
-                                 lineColor, 0, 0);
-                    }
-                    if (span.hasStrikethrough) {
-                        drawRect(curX, drawY + line.ascent * 0.35f, sl.measuredWidth, lineThickness,
-                                 lineColor, 0, 0);
-                    }
+            continue;
+        }
+        for (const auto& ds : app.getStyles()) {
+            Appearance one;
+            if (ds.type == DrawStyle::Type::Fill) one.addFill(ds); else one.addStroke(ds);
+            glyphRenderer_->renderGlyph(p.glyph, x, y, style, one);
+            for (int i = 0; i < p.decorationCount && i < 2; ++i) {
+                float rx, ry, rw, rh;
+                if (StyledLayout::decorationRect(p.decorations[i], ds, rx, ry, rw, rh)) {
+                    drawRect(px + rx, py + ry, rw, rh, ds.getColor(), 0, 0);
                 }
-                curX += sl.measuredWidth;
             }
         }
     }

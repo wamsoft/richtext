@@ -74,7 +74,52 @@ public:
         size_t spanIdx = SIZE_MAX;      ///< 外観を引く span（SIZE_MAX なら既定の外観）
         size_t charIndex = 0;           ///< プレーンテキスト上の位置（ルビ・注記は親文字の先頭）
         Kind kind = Kind::Base;
+
+        /**
+         * 下線・取り消し線（<u> <s>）の、この文字が受け持つ部分
+         *
+         * 線は文字ごとに切って持つので、文字と一緒に 1 文字ずつ出る。
+         * 座標はペン位置 (glyph.x, glyph.y) からの矩形。隣の文字の分とすき間が
+         * 空かないよう、続きがあるときは 1px 長くしてある。
+         * 文字と同じ外観（影・縁取り・塗り）で、DrawStyle ごとに文字と交互に描く
+         * （decorationRect()）。縁取りは線の両側と、続きの無い端にだけ付ける。
+         */
+        struct Decoration {
+            float x = 0, y = 0, width = 0, height = 0;
+            bool vertical = false;      ///< 縦組みの線（送り方向が y）
+            bool capStart = true;       ///< 線の始まり（縁取りを付ける）
+            bool capEnd = true;         ///< 線の終わり（縁取りを付ける）
+        };
+        uint8_t decorationCount = 0;    ///< 0〜2（下線と取り消し線）
+        Decoration decorations[2];
+        uint32_t decorationColor = 0;   ///< 外観が空のときの色（ARGB）
     };
+
+    /**
+     * 下線・取り消し線を DrawStyle 1 つ分で描く矩形（ペン位置からの相対）
+     * @return 描くものがあれば true
+     */
+    static bool decorationRect(const GlyphPlacement::Decoration& d, const DrawStyle& ds,
+                               float& x, float& y, float& w, float& h) {
+        x = d.x + ds.offsetX;
+        y = d.y + ds.offsetY;
+        w = d.width;
+        h = d.height;
+        if (ds.type == DrawStyle::Type::Stroke) {
+            const float e = ds.strokeWidth / 2.0f;
+            if (e <= 0.0f) return false;
+            if (!d.vertical) {
+                y -= e; h += e * 2.0f;
+                if (d.capStart) { x -= e; w += e; }
+                if (d.capEnd) w += e;
+            } else {
+                x -= e; w += e * 2.0f;
+                if (d.capStart) { y -= e; h += e; }
+                if (d.capEnd) h += e;
+            }
+        }
+        return w > 0.0f && h > 0.0f;
+    }
 
     StyledLayout() = default;
 
@@ -262,6 +307,7 @@ private:
     void buildHorizontalPlacements();
     void layoutVertical(const TextStyle& defaultStyle, float lineSpacing);
     size_t findSpan(size_t charIndex) const;
+    uint32_t decorationColorOf(size_t spanIdx) const;
 
     // タイミング解決結果
     mutable std::vector<ResolvedTiming> resolvedTimings_;

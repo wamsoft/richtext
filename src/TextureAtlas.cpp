@@ -67,6 +67,24 @@ TextureAtlas::GlyphKey TextureAtlas::makeKey(const GlyphInfo& glyph,
     return key;
 }
 
+TextureAtlas::GlyphKey TextureAtlas::makeKey(const StyledLayout::GlyphPlacement& placement,
+                                              const TextStyle& style,
+                                              const Appearance& appearance) {
+    GlyphKey key = makeKey(placement.glyph, style, appearance);
+    if (placement.decorationCount > 0) {
+        key.decorationColor = placement.decorationColor;
+        for (int i = 0; i < placement.decorationCount && i < 2; ++i) {
+            const auto& d = placement.decorations[i];
+            key.decorationQ[i * 4 + 0] = static_cast<int32_t>(std::lround(d.x * 64.0f));
+            key.decorationQ[i * 4 + 1] = static_cast<int32_t>(std::lround(d.y * 64.0f));
+            key.decorationQ[i * 4 + 2] = static_cast<int32_t>(std::lround(d.width * 64.0f));
+            key.decorationQ[i * 4 + 3] = static_cast<int32_t>(std::lround(d.height * 64.0f))
+                                       | (d.capStart ? (1 << 29) : 0) | (d.capEnd ? (1 << 30) : 0);
+        }
+    }
+    return key;
+}
+
 bool TextureAtlas::allocateRect(int width, int height, int& outX, int& outY) {
     if (bufferWidth_ <= 0 || bufferHeight_ <= 0) return false;
 
@@ -98,10 +116,31 @@ bool TextureAtlas::allocateRect(int width, int height, int& outX, int& outY) {
     return true;
 }
 
+namespace {
+
+bool rasterizeCell(const GlyphInfo& glyph, const TextStyle& style, const Appearance& appearance,
+                   const StyledLayout::GlyphPlacement* placement, GlyphCell& out);
+
+} // namespace
+
 bool TextureAtlas::rasterizeGlyphCell(const GlyphInfo& glyph,
                                       const TextStyle& style,
                                       const Appearance& appearance,
                                       GlyphCell& out) {
+    return rasterizeCell(glyph, style, appearance, nullptr, out);
+}
+
+bool TextureAtlas::rasterizeGlyphCell(const StyledLayout::GlyphPlacement& placement,
+                                      const TextStyle& style,
+                                      const Appearance& appearance,
+                                      GlyphCell& out) {
+    return rasterizeCell(placement.glyph, style, appearance, &placement, out);
+}
+
+namespace {
+
+bool rasterizeCell(const GlyphInfo& glyph, const TextStyle& style, const Appearance& appearance,
+                   const StyledLayout::GlyphPlacement* placement, GlyphCell& out) {
     if (!glyph.font) return false;
 
     // Appearance の装飾分（ストローク幅、影オフセット）
@@ -117,7 +156,14 @@ bool TextureAtlas::rasterizeGlyphCell(const GlyphInfo& glyph,
     // ペン位置を中心に、回転・倍率・斜体・縦組みのずれがあっても収まる大きさで描く
     const float size = glyphFontSize(glyph, style);
     const float scale = std::max(1.0f, std::max(std::abs(glyph.scaleX), std::abs(glyph.scaleY)));
-    const float extent = std::max(std::abs(glyph.advance), size) * scale * 1.6f;
+    float extent = std::max(std::abs(glyph.advance), size) * scale * 1.6f;
+    if (placement) {
+        for (int i = 0; i < placement->decorationCount && i < 2; ++i) {
+            const auto& d = placement->decorations[i];
+            extent = std::max(extent, std::max(std::abs(d.x), std::abs(d.x + d.width)));
+            extent = std::max(extent, std::max(std::abs(d.y), std::abs(d.y + d.height)));
+        }
+    }
     const int half = static_cast<int>(std::ceil(extent + maxStroke + maxOffset)) + 4;
     const int dim = half * 2;
 
@@ -126,7 +172,30 @@ bool TextureAtlas::rasterizeGlyphCell(const GlyphInfo& glyph,
     GlyphRenderer renderer(cell);
     renderer.setUseCache(false);
     // renderGlyph は glyph.x / glyph.y を足すので、ペン位置が (half, half) に来るよう打ち消す
-    renderer.renderGlyph(glyph, half - glyph.x, half - glyph.y, style, appearance);
+    const float penX = static_cast<float>(half), penY = static_cast<float>(half);
+    if (placement && placement->decorationCount > 0 && !appearance.getStyles().empty()) {
+        // 下線・取り消し線のこの文字の受け持ち分。DrawStyle ごとに文字と交互に描いて、
+        // 影・縁取り・塗りが文字と同じ重なり方になるようにする
+        for (const auto& ds : appearance.getStyles()) {
+            Appearance one;
+            if (ds.type == DrawStyle::Type::Fill) one.addFill(ds); else one.addStroke(ds);
+            renderer.renderGlyph(glyph, penX - glyph.x, penY - glyph.y, style, one);
+            for (int i = 0; i < placement->decorationCount && i < 2; ++i) {
+                float x, y, w, h;
+                if (StyledLayout::decorationRect(placement->decorations[i], ds, x, y, w, h)) {
+                    cell.fillRectF(penX + x, penY + y, w, h, ds.getColor());
+                }
+            }
+        }
+    } else {
+        renderer.renderGlyph(glyph, penX - glyph.x, penY - glyph.y, style, appearance);
+        if (placement) {
+            for (int i = 0; i < placement->decorationCount && i < 2; ++i) {
+                const auto& d = placement->decorations[i];
+                cell.fillRectF(penX + d.x, penY + d.y, d.width, d.height, placement->decorationColor);
+            }
+        }
+    }
 
     // インクのある範囲
     int minX = dim, minY = dim, maxX = -1, maxY = -1;
@@ -167,6 +236,8 @@ bool TextureAtlas::rasterizeGlyphCell(const GlyphInfo& glyph,
     return true;
 }
 
+} // namespace
+
 bool TextureAtlas::renderGlyphToAtlas(const GlyphInfo& glyph,
                                        const TextStyle& style,
                                        const Appearance& appearance) {
@@ -177,7 +248,10 @@ bool TextureAtlas::renderGlyphToAtlas(const GlyphInfo& glyph,
 
     GlyphCell cell;
     if (!rasterizeGlyphCell(glyph, style, appearance, cell)) return false;
+    return storeCell(key, cell);
+}
 
+bool TextureAtlas::storeCell(const GlyphKey& key, const GlyphCell& cell) {
     // 配置位置を確保
     int atlasX, atlasY;
     if (!allocateRect(cell.width, cell.height, atlasX, atlasY)) {
@@ -232,12 +306,16 @@ bool TextureAtlas::addParagraphLayout(const ParagraphLayout& para,
 bool TextureAtlas::addStyledLayout(const StyledLayout& styledLayout) {
     if (!styledLayout.isValid()) return false;
 
-    // 本文・ルビ・縦組みの注記をすべて登録する
+    // 本文・ルビ・縦組みの注記をすべて登録する（下線・取り消し線の受け持ち分を含む）
     for (const auto& p : styledLayout.getPlacements()) {
-        if (!renderGlyphToAtlas(p.glyph, styledLayout.getPlacementStyle(p),
-                                styledLayout.getPlacementAppearance(p))) {
-            return false;
-        }
+        if (!p.glyph.font) return false;
+        const TextStyle& style = styledLayout.getPlacementStyle(p);
+        const Appearance& app = styledLayout.getPlacementAppearance(p);
+        auto key = makeKey(p, style, app);
+        if (glyphMap_.count(key)) continue;
+        GlyphCell cell;
+        if (!rasterizeGlyphCell(p, style, app, cell)) return false;
+        if (!storeCell(key, cell)) return false;
     }
     return true;
 }
@@ -378,7 +456,7 @@ std::vector<CopyRect> TextureAtlas::getCopyRects(const StyledLayout& styledLayou
     for (const auto& p : placements) {
         if (p.charIndex >= threshold) continue;
 
-        auto key = makeKey(p.glyph, styledLayout.getPlacementStyle(p),
+        auto key = makeKey(p, styledLayout.getPlacementStyle(p),
                            styledLayout.getPlacementAppearance(p));
         auto it = glyphMap_.find(key);
         if (it == glyphMap_.end()) continue;
