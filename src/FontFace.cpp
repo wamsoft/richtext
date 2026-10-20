@@ -274,37 +274,43 @@ bool FontFace::renderCOLRv1Glyph(uint32_t glyphId, float size,
     RenderTarget target(buffer.data(), bmpW, bmpH, bmpW);
 
     for (const auto& layer : layers) {
-        // レイヤー行列はビットマップ（y-down）側の空間で解釈する。バックエンドの
-        // ラスタライザは y-up で受け取るので F*M*F（F = diag(1,-1)）に直し、
-        // 原点 (originX, originY) 分を平行移動で寄せる。
+        // レイヤー行列はフォントユニット (y-up) → ピクセル (y-up) の変換 (COLR の root transform を
+        // 含む)。バックエンドのラスタライザも y-up で受け取るのでそのまま渡し、原点
+        // (originX, originY) 分だけ寄せる。ビットマップの y-down 座標は (X - originX, -Y - originY)。
+        const float* m = layer.transform;
         FontRenderParams params;
-        params.transform.xx = layer.transform[0];
-        params.transform.xy = -layer.transform[1];
-        params.transform.dx = layer.transform[2] - static_cast<float>(originX);
-        params.transform.yx = -layer.transform[3];
-        params.transform.yy = layer.transform[4];
-        params.transform.dy = -layer.transform[5] + static_cast<float>(originY);
+        params.transform.xx = m[0];
+        params.transform.xy = m[1];
+        params.transform.dx = m[2] - static_cast<float>(originX);
+        params.transform.yx = m[3];
+        params.transform.yy = m[4];
+        params.transform.dy = m[5] + static_cast<float>(originY);
 
         FontGlyphMask mask;
         if (!face_->getGlyphMask(layer.glyphId, params, mask)) continue;
+
+        // グラデーションの点・半径はグリフと同じ (変換前の) 空間で定義されているので、同じ行列を掛ける
+        auto toBitmap = [&](float x, float y, float& bx, float& by) {
+            const float X = m[0] * x + m[1] * y + m[2];
+            const float Y = m[3] * x + m[4] * y + m[5];
+            bx = X - static_cast<float>(originX);
+            by = -Y - static_cast<float>(originY);
+        };
+        const float radiusScale = std::sqrt(std::abs(m[0] * m[4] - m[1] * m[3]));
 
         Paint paint;
         switch (layer.paint.kind) {
         case FontPaintKind::LinearGradient:
             paint.type = PaintType::LinearGradient;
-            paint.x0 = layer.paint.x0 - originX;
-            paint.y0 = -layer.paint.y0 - originY;
-            paint.x1 = layer.paint.x1 - originX;
-            paint.y1 = -layer.paint.y1 - originY;
+            toBitmap(layer.paint.x0, layer.paint.y0, paint.x0, paint.y0);
+            toBitmap(layer.paint.x1, layer.paint.y1, paint.x1, paint.y1);
             break;
         case FontPaintKind::RadialGradient:
             paint.type = PaintType::RadialGradient;
-            paint.x0 = layer.paint.x0 - originX;
-            paint.y0 = -layer.paint.y0 - originY;
-            paint.r0 = layer.paint.r0;
-            paint.x1 = layer.paint.x1 - originX;
-            paint.y1 = -layer.paint.y1 - originY;
-            paint.r1 = layer.paint.r1;
+            toBitmap(layer.paint.x0, layer.paint.y0, paint.x0, paint.y0);
+            toBitmap(layer.paint.x1, layer.paint.y1, paint.x1, paint.y1);
+            paint.r0 = layer.paint.r0 * radiusScale;
+            paint.r1 = layer.paint.r1 * radiusScale;
             break;
         case FontPaintKind::Solid:
         default:
